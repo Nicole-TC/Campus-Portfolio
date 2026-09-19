@@ -1,0 +1,14 @@
+# Estas son las librerías con las que arranca el proyecto.
+# El equipo de 2° año puede agregar más abajo a medida que las necesite
+# (recordar: cada librería nueva -> pip install --break-system-packages o
+# reconstruir la imagen con `docker compose up --build`).
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+psycopg2-binary==2.9.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+pydantic==2.9.2
+pydantic-settings==2.5.2
