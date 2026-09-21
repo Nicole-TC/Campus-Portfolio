@@ -1,7 +1,8 @@
 """Esquemas Pydantic de entrada/salida de la API."""
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AlmacenamientoOut(BaseModel):
@@ -26,3 +27,12 @@ class PerfilOut(BaseModel):
     estado: str
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
+
+
+class ArchivoPapeleraOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre_original: str
+    en_papelera: bool
+    fecha_eliminacion: Optional[datetime]
