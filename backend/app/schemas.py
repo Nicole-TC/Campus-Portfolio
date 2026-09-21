@@ -33,7 +33,7 @@ class RegistroIn(BaseModel):
     dni: str
     email: str
     password: str
-
+    rol: str
 
 class LoginIn(BaseModel):
     email: str
