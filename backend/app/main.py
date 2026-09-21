@@ -43,6 +43,7 @@ from logging import root
 from fastapi import FastAPI
 from app.database import verificar_conexion
 from app.routers import usuarios
+from app.routers import telegram
 
 app = FastAPI(
     title="CampusCloud API",
@@ -52,6 +53,7 @@ app = FastAPI(
 )
 
 app.include_router(usuarios.router)
+app.include_router(telegram.router)
 
 
 @app.get("/salud")
