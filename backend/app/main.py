@@ -42,9 +42,9 @@ Al incluirlo aquí:
 from logging import root
 from fastapi import FastAPI
 from app.database import verificar_conexion
-from app.routers import usuarios, telegram, auth
+from app.routers import usuarios
 from app.excepciones import registrar_manejadores
-
+from app.routers import telegram
 
 app = FastAPI(
     title="CampusCloud API",
@@ -56,7 +56,6 @@ registrar_manejadores(app)
 
 app.include_router(usuarios.router)
 app.include_router(telegram.router)
-app.include_router(auth.router)
 
 
 @app.get("/salud")
