@@ -1,13 +1,27 @@
-"""Dependencia JWT: lee el Bearer, valida la firma y deja pasar la identidad."""
-from typing import Any
-
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
-
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models import Usuario
 from app.security import decodificar_token
+from app.excepciones import ErrorNoAutorizado, ErrorProhibido
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+ESTADO_ACTIVO = "ACTIVO"
 
+def get_current_user(
+    token: str = Depends(oauth2_scheme), 
+    db: Session = Depends(get_db)
+) -> Usuario:
+    
+    payload = decodificar_token(token)
+    usuario_id = payload.get("id_usuario")
 
-def obtener_usuario_actual(token: str = Depends(oauth2_scheme)) -> dict[str, Any]:
-    return decodificar_token(token)
+    usuario = db.get(Usuario, usuario_id)
+    if usuario is None:
+        raise ErrorNoAutorizado("El usuario ya no existe")
+        
+    if usuario.estado.nombre != ESTADO_ACTIVO:
+        raise ErrorProhibido("Cuenta no activada")
+        
+    return usuario
