@@ -20,19 +20,19 @@ services:
   # ---------------------------------------------------------------
   # Bot de Telegram (opcional, aislado en su propio contenedor)
   # ---------------------------------------------------------------
-  #bot:
-  #  build: ./bot
-  #  container_name: campuscloud_bot
-  #  restart: unless-stopped
-  #  env_file:
-  #    - .env
-  #  environment:
-  #    - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
-  #    - BACKEND_URL=${BACKEND_URL}
-  #  depends_on:
-  #    - backend
-  #  networks:
-  #    - campuscloud_net
+  bot:
+    build: ./bot
+    container_name: campuscloud_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - BACKEND_URL=${BACKEND_URL}
+    depends_on:
+      - backend
+    networks:
+      - campuscloud_net
 
   # ---------------------------------------------------------------
   # Reverse proxy (Nginx) - único punto de entrada público
