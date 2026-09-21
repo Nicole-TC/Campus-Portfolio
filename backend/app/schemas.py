@@ -26,3 +26,20 @@ class PerfilOut(BaseModel):
     estado: str
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
+
+class RegistroIn(BaseModel):
+    nombre: str
+    apellido: str
+    dni: str
+    email: str
+    password: str
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
