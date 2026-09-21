@@ -1,4 +1,3 @@
-
 const Drive = (() => {
   'use strict';
 
@@ -413,14 +412,15 @@ const Drive = (() => {
   // Compartición
   // ---------------------------------------------------------------
 
-  function compartir(actorId, itemId, email, permiso) {
+  function compartir(actorId, itemId, identificador, permiso) {
     if (!Auth.puede(Auth.obtenerUsuario(actorId), 'compartir')) return err('Tu rol no permite compartir archivos.');
     const n = nodo(itemId);
     if (!n || n.eliminado) return err('El elemento ya no existe.');
     if (!puede(actorId, n, 'compartir')) return err('Solo el propietario puede compartir este elemento.');
     if (!['lector', 'editor'].includes(permiso)) return err('Permiso inválido.');
-    const objetivo = Auth.usuarioPorEmail(email);
-    if (!objetivo) return err('No encontramos una cuenta con ese correo.');
+    if (!Auth.validarIdentificador(identificador)) return err('Ingresá un correo o un DNI válido.');
+    const objetivo = Auth.usuarioPorIdentificador(identificador); // el compañero se busca por correo o por DNI
+    if (!objetivo) return err('No encontramos una cuenta con ese correo o DNI.');
     if (objetivo.estado !== 'aprobado') return err('Esa cuenta todavía no está activa.');
     if (objetivo.id === actorId) return err('Ya sos el propietario de este elemento.');
 

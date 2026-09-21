@@ -54,6 +54,57 @@
 
 </div>
 
+<!-- Modal de Bootstrap: compartir un archivo o carpeta con un compañero (por correo o DNI) -->
+<div class="modal fade" id="modalCompartir" tabindex="-1" aria-labelledby="shTitulo" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="shTitulo">Compartir</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+
+      <div class="modal-body">
+        <p class="dc-dialog-text" id="shTexto"></p>
+
+        <div class="auth-alert" id="shError" role="alert" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span></span>
+        </div>
+
+        <form id="shForm" novalidate>
+          <div class="field" id="shCampo">
+            <label for="shIdentificador">Correo o DNI del compañero</label>
+            <div class="input-wrap">
+              <input type="text" id="shIdentificador" name="identificador" placeholder="nombre@campus.edu.ar o 12.345.678" autocomplete="off" required aria-describedby="shIdError" aria-invalid="false">
+            </div>
+            <span class="field-error" id="shIdError">Ingresá un correo o un DNI válido (7 u 8 números).</span>
+          </div>
+
+          <div class="field">
+            <label for="shPermiso">Permiso</label>
+            <div class="input-wrap">
+              <select id="shPermiso" name="permiso">
+                <option value="lector">Lector — ve y descarga</option>
+                <option value="editor">Editor — también sube y renombra</option>
+              </select>
+            </div>
+          </div>
+
+          <button type="submit" class="dc-btn dc-btn-primary" id="shBtn">Compartir</button>
+        </form>
+
+        <h3 class="dc-subtitle">Personas con acceso</h3>
+        <div id="shLista"></div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="dc-btn dc-btn-ghost" data-bs-dismiss="modal">Listo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/http.js"></script>
 <script src="js/ui.js"></script>
@@ -96,6 +147,7 @@
     busqueda: '',
     filtroTipo: 'todos',
     verTodasCarpetas: false,
+    compartidos: null, // { cargando, error, items }: lo llena cargarCompartidos() con lo que devuelve Api.compartidosConmigo()
     tablas: {
       archivos: { clave: 'modificado', dir: 'desc', pagina: 1 },
       busqueda: { clave: 'nombre', dir: 'asc', pagina: 1 },
@@ -139,7 +191,23 @@
     if (estado.tablas[seccion]) estado.tablas[seccion].pagina = 1;
     try { history.replaceState(null, '', '#' + seccion); } catch { /* ignorar */ }
     cerrarSidebar();
-    render();
+    if (seccion === 'compartidos' && !carpetaId) cargarCompartidos(); else render();
+  }
+
+  // Pide a la API (GET /drive/shares/received) lo que compartieron conmigo y redibuja.
+  // La secuencia evita que una respuesta vieja pise a una más nueva.
+  let secuenciaCompartidos = 0;
+  async function cargarCompartidos() {
+    const mia = ++secuenciaCompartidos;
+    estado.compartidos = { cargando: true, error: '', items: [] };
+    render(); // muestra "Cargando…" mientras responde
+    const r = await Api.compartidosConmigo();
+    if (mia !== secuenciaCompartidos) return;
+    if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+    estado.compartidos = r.ok
+      ? { cargando: false, error: '', items: r.items || [] }
+      : { cargando: false, error: r.motivo, items: [] };
+    if (estado.seccion === 'compartidos') render();
   }
 
   $('#cabNav').addEventListener('click', (e) => {
@@ -378,7 +446,24 @@
       }
     }
 
-    const filas = Drive.compartidosConmigo(usuario.id)
+    const pedido = estado.compartidos;
+    if (!pedido || pedido.cargando) {
+      return `
+        ${cabecera('Compartidos conmigo', 'Archivos y carpetas que otras personas compartieron con vos.')}
+        <section>
+          <div class="empty-state" role="status" aria-live="polite">
+            <span class="dc-spinner" aria-hidden="true"></span>
+            <p>Cargando lo que compartieron con vos…</p>
+          </div>
+        </section>`;
+    }
+    if (pedido.error) {
+      return `
+        ${cabecera('Compartidos conmigo', 'Archivos y carpetas que otras personas compartieron con vos.')}
+        ${UI.errorVista(pedido.error)}`;
+    }
+
+    const filas = pedido.items
       .filter(x => !q || UI.normalizar(x.nodo.nombre).includes(q))
       .map(x => ({
         id: x.nodo.id,
@@ -776,84 +861,112 @@
       peligro: true,
     });
     if (!okConfirm) return;
-    resultado(await Api.quitarComparticion(shareId), 'Quitado de tu lista.');
+    if (resultado(await Api.quitarComparticion(shareId), 'Quitado de tu lista.', { redibujar: false })) cargarCompartidos();
   }
 
-  // ---- Diálogo de compartir (docente y admin) ----
+  // ---- Modal de Bootstrap para compartir (#modalCompartir) ----
+  const sh = {
+    modal: $('#modalCompartir'),
+    titulo: $('#shTitulo'),
+    texto: $('#shTexto'),
+    error: $('#shError'),
+    form: $('#shForm'),
+    campo: $('#shCampo'),
+    input: $('#shIdentificador'),
+    permiso: $('#shPermiso'),
+    btn: $('#shBtn'),
+    lista: $('#shLista'),
+  };
+  let compartirId = null; // elemento que se está compartiendo mientras el modal está abierto
+
+  function shMostrarError(msg) {
+    sh.error.querySelector('span').textContent = msg || '';
+    sh.error.hidden = !msg;
+  }
+
+  const shSelectPermiso = (valor, attrs) => `
+    <select ${attrs}>
+      <option value="lector"${valor === 'lector' ? ' selected' : ''}>Lector — ve y descarga</option>
+      <option value="editor"${valor === 'editor' ? ' selected' : ''}>Editor — también sube y renombra</option>
+    </select>`;
+
+  /** Dibuja "Personas con acceso" del elemento abierto en el modal. */
+  function shPintarLista() {
+    const lista = compartirId ? Drive.comparticionesDe(compartirId) : [];
+    sh.lista.innerHTML = lista.length
+      ? `<ul class="dc-share-list">${lista.map(s => `
+          <li>
+            <div class="dc-share-who"><strong>${esc(s.nombre)}</strong><span>${esc(s.email)}</span></div>
+            ${shSelectPermiso(s.permiso, `data-share-permiso="${esc(s.id)}" aria-label="Permiso de ${esc(s.nombre)}"`)}
+            <button type="button" class="icon-btn is-danger" data-share-quitar="${esc(s.id)}" aria-label="Quitar acceso a ${esc(s.nombre)}">${iconos.cerrar}</button>
+          </li>`).join('')}</ul>`
+      : '<p class="dc-muted">Todavía no compartiste este elemento con nadie.</p>';
+  }
+
   function abrirCompartir(id) {
     const n = Drive.nodo(id);
     if (!n) return;
-    const dlg = UI.dialogo('<div class="dc-dialog-body"></div>', { ancho: 'wide' });
-    dlg.setAttribute('aria-labelledby', 'shTitulo');
-    const body = dlg.querySelector('.dc-dialog-body');
-
-    const selectPermiso = (valor, attrs = '') => `
-      <select ${attrs}>
-        <option value="lector"${valor === 'lector' ? ' selected' : ''}>Lector — ve y descarga</option>
-        <option value="editor"${valor === 'editor' ? ' selected' : ''}>Editor — también sube y renombra</option>
-      </select>`;
-
-    function pintar(enfocar = false) {
-      const lista = Drive.comparticionesDe(id);
-      body.innerHTML = `
-        <h2 class="dc-dialog-title" id="shTitulo">Compartir “${esc(n.nombre)}”</h2>
-        <p class="dc-dialog-text">${n.tipo === 'carpeta' ? 'Las personas que invites van a ver también todo lo que está adentro de la carpeta.' : 'Invitá a otra persona con su correo de CampusCloud.'}</p>
-        <div class="auth-alert" data-error role="alert" hidden>${iconos.info}<span></span></div>
-        <form class="dc-share-form" novalidate>
-          <div class="field">
-            <label for="shEmail">Correo de la persona</label>
-            <div class="input-wrap"><input type="email" id="shEmail" placeholder="nombre@campus.edu.ar" autocomplete="off"></div>
-          </div>
-          <div class="field">
-            <label for="shPermiso">Permiso</label>
-            <div class="input-wrap">${selectPermiso('lector', 'id="shPermiso"')}</div>
-          </div>
-          <div><button type="submit" class="dc-btn dc-btn-primary">Compartir</button></div>
-        </form>
-        <h3 class="dc-subtitle">Personas con acceso</h3>
-        ${lista.length ? `<ul class="dc-share-list">${lista.map(s => `
-          <li>
-            <div class="dc-share-who"><strong>${esc(s.nombre)}</strong><span>${esc(s.email)}</span></div>
-            ${selectPermiso(s.permiso, `data-share-permiso="${esc(s.id)}" aria-label="Permiso de ${esc(s.nombre)}"`)}
-            <button type="button" class="icon-btn is-danger" data-share-quitar="${esc(s.id)}" aria-label="Quitar acceso a ${esc(s.nombre)}">${iconos.cerrar}</button>
-          </li>`).join('')}</ul>` : '<p class="dc-muted">Todavía no compartiste este elemento con nadie.</p>'}
-        <div class="dc-dialog-actions"><button type="button" class="dc-btn dc-btn-primary" data-cerrar>Listo</button></div>`;
-      if (enfocar) { const i = body.querySelector('#shEmail'); if (i) i.focus(); }
-    }
-
-    const mostrarError = (msg) => {
-      const a = body.querySelector('[data-error]');
-      a.querySelector('span').textContent = msg;
-      a.hidden = !msg;
-    };
-
-    body.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = body.querySelector('#shEmail').value.trim();
-      const permiso = body.querySelector('#shPermiso').value;
-      if (!Auth.validarEmail(email)) { mostrarError('Ingresá un correo válido.'); return; }
-      const r = await Api.compartir(id, email, permiso);
-      if (!r.ok) { mostrarError(r.motivo); return; }
-      pintar(true);
-      UI.toast(`Compartido con ${r.nombre}.`, { tipo: 'ok' });
-    });
-    body.addEventListener('change', async (e) => {
-      const sel = e.target.closest('[data-share-permiso]');
-      if (!sel) return;
-      const r = await Api.cambiarPermisoComparticion(sel.dataset.sharePermiso, sel.value);
-      if (!r.ok) mostrarError(r.motivo); else UI.toast('Permiso actualizado.', { tipo: 'ok' });
-    });
-    body.addEventListener('click', async (e) => {
-      if (e.target.closest('[data-cerrar]')) { dlg.close(); return; }
-      const q = e.target.closest('[data-share-quitar]');
-      if (q) {
-        const r = await Api.quitarComparticion(q.dataset.shareQuitar);
-        if (!r.ok) mostrarError(r.motivo); else { pintar(); UI.toast('Acceso quitado.', { tipo: 'ok' }); }
-      }
-    });
-    dlg.addEventListener('close', render);
-    pintar(true);
+    compartirId = id;
+    sh.titulo.textContent = `Compartir “${n.nombre}”`;
+    sh.texto.textContent = n.tipo === 'carpeta'
+      ? 'Las personas que invites van a ver también todo lo que está adentro de la carpeta.'
+      : 'Escribí el correo o el DNI del compañero al que le querés dar acceso.';
+    sh.form.reset();
+    Auth.marcarCampo(sh.campo, sh.input, true);
+    shMostrarError('');
+    shPintarLista();
+    bootstrap.Modal.getOrCreateInstance(sh.modal).show();
   }
+
+  sh.modal.addEventListener('shown.bs.modal', () => sh.input.focus());
+  // Al cerrar se redibuja la vista, así aparece (o desaparece) el ícono de "compartido".
+  sh.modal.addEventListener('hidden.bs.modal', () => { compartirId = null; render(); });
+
+  sh.form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    shMostrarError('');
+    const id = compartirId;
+    const destinatario = sh.input.value.trim();
+
+    const valido = Auth.validarIdentificador(destinatario);
+    Auth.marcarCampo(sh.campo, sh.input, valido);
+    if (!valido) { sh.input.focus(); return; }
+
+    UI.cargando(sh.btn, true);
+    const r = await Api.compartir(id, destinatario, sh.permiso.value);
+    UI.cargando(sh.btn, false);
+
+    if (!r.ok) {
+      if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+      shMostrarError(r.motivo);
+      return;
+    }
+    if (compartirId === id) {
+      sh.form.reset();
+      shPintarLista();
+      sh.input.focus();
+    }
+    UI.toast(`Compartido con ${r.nombre}.`, { tipo: 'ok' });
+  });
+
+  sh.lista.addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-share-permiso]');
+    if (!sel) return;
+    const r = await Api.cambiarPermisoComparticion(sel.dataset.sharePermiso, sel.value);
+    if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+    if (!r.ok) { shMostrarError(r.motivo); shPintarLista(); return; }
+    UI.toast('Permiso actualizado.', { tipo: 'ok' });
+  });
+
+  sh.lista.addEventListener('click', async (e) => {
+    const q = e.target.closest('[data-share-quitar]');
+    if (!q) return;
+    const r = await Api.quitarComparticion(q.dataset.shareQuitar);
+    if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+    if (!r.ok) { shMostrarError(r.motivo); return; }
+    shPintarLista();
+    UI.toast('Acceso quitado.', { tipo: 'ok' });
+  });
 
   // ---- Menú de cada fila / tarjeta ----
   function itemsMenu(n) {
@@ -891,7 +1004,10 @@
   });
 
   content.addEventListener('click', async (e) => {
-    if (e.target.closest('[data-reintentar]')) { render(); return; }
+    if (e.target.closest('[data-reintentar]')) {
+      if (estado.seccion === 'compartidos' && !estado.carpetaId) cargarCompartidos(); else render();
+      return;
+    }
 
     const k = e.target.closest('[data-menu-fila]');
     if (k) {
@@ -962,7 +1078,7 @@
     if (card && !e.target.closest('.kebab-btn')) abrirCarpeta(card.dataset.id);
   });
 
-  render();
+  if (estado.seccion === 'compartidos') cargarCompartidos(); else render();
 </script>
 
 </body>

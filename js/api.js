@@ -156,9 +156,20 @@ const Api = (() => {
   // Compartir (solo docente y admin; el alumno recibe pero no comparte)
   // ---------------------------------------------------------------
 
-  /** POST /drive/items/:id/shares  { email, permiso } */
-  const compartir = (id, email, permiso) =>
-    llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, email, permiso));
+  /**
+   * GET /drive/shares/received  → { items: [{ share, nodo, propietario, permiso }] }
+   * Lo que otras personas compartieron con quien tiene la sesión. Lo pueden
+   * pedir los tres roles (el alumno recibe aunque no comparta).
+   */
+  const compartidosConmigo = () =>
+    llamar(null, u => ({ ok: true, items: Drive.compartidosConmigo(u.id) }));
+
+  /**
+   * POST /drive/items/:id/shares  { destinatario, permiso }
+   * "destinatario" es el correo o el DNI de la otra persona.
+   */
+  const compartir = (id, destinatario, permiso) =>
+    llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, destinatario, permiso));
 
   /** PATCH /drive/shares/:shareId  { permiso } */
   const cambiarPermisoComparticion = (shareId, permiso) =>
@@ -233,7 +244,7 @@ const Api = (() => {
     login, registrar, recuperarPassword,
     crearCarpeta, subirArchivo, renombrar, mover, eliminar, restaurar,
     eliminarDefinitivo, vaciarPapelera, descargar,
-    compartir, cambiarPermisoComparticion, quitarComparticion,
+    compartir, compartidosConmigo, cambiarPermisoComparticion, quitarComparticion,
     cambiarEstadoUsuario, cambiarRol, guardarExcepciones, cambiarCuota,
     guardarPoliticaGlobal, guardarPoliticaRol, restaurarPoliticas,
   };

@@ -86,6 +86,12 @@ const Auth = (() => {
     return /^\d{7,8}$/.test(limpiarDNI(valor));
   }
 
+  /** Vale si es un correo válido o un DNI de 7 u 8 números (con o sin puntos). */
+  function validarIdentificador(valor) {
+    const v = String(valor || '').trim();
+    return v.includes('@') ? validarEmail(v) : validarDNI(v);
+  }
+
   function formatearDNI(valor) {
     const s = String(valor || '').replace(/\D/g, '');
     return s ? s.replace(/\B(?=(\d{3})+(?!\d))/g, '.') : '';
@@ -157,6 +163,16 @@ const Auth = (() => {
   function usuarioPorEmail(email) {
     const e = String(email || '').trim().toLowerCase();
     const u = leerUsuarios().find(x => x.email === e);
+    return u ? publico(u) : null;
+  }
+
+  /** Busca una cuenta por correo o por DNI (lo que escriba la persona en el modal de compartir). */
+  function usuarioPorIdentificador(valor) {
+    const v = String(valor || '').trim();
+    if (!validarIdentificador(v)) return null;
+    if (v.includes('@')) return usuarioPorEmail(v);
+    const dni = limpiarDNI(v);
+    const u = leerUsuarios().find(x => x.dni === dni);
     return u ? publico(u) : null;
   }
 
@@ -498,9 +514,9 @@ const Auth = (() => {
   return {
     ROLES, ROLES_SOLICITABLES, ESTADOS, MOTIVOS_RECHAZO, CAPACIDADES, CAPACIDAD_SERVIDOR_MB, CUENTAS_DEMO,
     generarId, irA, puede,
-    validarEmail, validarDNI, limpiarDNI, formatearDNI,
+    validarEmail, validarDNI, validarIdentificador, limpiarDNI, formatearDNI,
     registrarUsuario, iniciarSesion, cerrarSesion, obtenerSesion, requerirSesion, sesionActiva,
-    listarUsuarios, obtenerUsuario, usuarioPorEmail, obtenerPendientes,
+    listarUsuarios, obtenerUsuario, usuarioPorEmail, usuarioPorIdentificador, obtenerPendientes,
     cambiarEstadoUsuario, cambiarRol, guardarExcepciones,
     obtenerPoliticas, guardarPoliticaGlobal, guardarPoliticaRol, restaurarPoliticas, politicaEfectiva,
     parsearExtensiones, extensionDe, verificarExtension, describirExtensiones,
