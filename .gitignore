@@ -1,105 +1,14 @@
-# ==============================================================================
-# VARIABLES DE ENTORNO Y SECRETOS (NUNCA SUBIR)
-# ==============================================================================
+# Variables de entorno con credenciales reales
 .env
-.env.*
-!.env.example
-*.pem
-*.key
-*.cert
-*.crt
 
-# ==============================================================================
-# ALMACENAMIENTO Y ARCHIVOS DE USUARIOS / PERSISTENCIA LOCAL
-# ==============================================================================
-# Archivos subidos o generados por usuarios
-storage/
+# Archivos subidos por los usuarios
 backend/storage/*
 !backend/storage/.gitkeep
 
-# Bases de datos locales SQLite
-*.sqlite
-*.sqlite3
-*.db
-
-# ==============================================================================
-# PYTHON Y ENTORNOS VIRTUALES
-# ==============================================================================
+# Python
 __pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-
-# Entornos virtuales
+*.pyc
 .venv/
-venv/
-ENV/
-env/
-env.bak/
-venv.bak/
 
-# Distribución / empaquetado
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# ==============================================================================
-# LOGS Y ARCHIVOS TEMPORALES
-# ==============================================================================
-*.log
-logs/
-*.tmp
-*.temp
-
-# ==============================================================================
-# TESTING Y CALIDAD DE CÓDIGO
-# ==============================================================================
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
-.mypy_cache/
-.ruff_cache/
-
-# ==============================================================================
-# CONFIGURACIONES DE EDITORES / IDES
-# ==============================================================================
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# ==============================================================================
-# ARCHIVOS DEL SISTEMA OPERATIVO
-# ==============================================================================
-# macOS
+# Sistema
 .DS_Store
-.AppleDouble
-.LSOverride
-._*
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-$RECYCLE.BIN/
-
-# ==============================================================================
-# DOCKER LOCAL OVERRIDES
-# ==============================================================================
-docker-compose.override.yml
