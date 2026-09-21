@@ -71,6 +71,54 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ No pude completar la vinculación ahora. Intentá de nuevo en unos minutos.")
 
 
+def _consultar_status_en_backend(chat_id: int) -> tuple[Optional[int], Optional[dict]]:
+    """Pide al backend el consumo de cuota del chat. Devuelve (código HTTP, cuerpo) o (None, None)."""
+    try:
+        resp = requests.get(
+            f"{BACKEND_URL}/telegram/status",
+            params={"chat_id": chat_id},
+            headers={"X-Bot-Token": TELEGRAM_TOKEN},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        logger.error("No se pudo contactar al backend: %s", e)
+        return None, None
+
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, None
+
+
+def _formatear_mb(bytes_valor: int) -> str:
+    """Convierte bytes a MB con 1 decimal para mostrar en Telegram."""
+    return f"{bytes_valor / (1024 * 1024):.1f} MB"
+
+
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/status → consumo de cuota del usuario en CampusCloud."""
+    codigo, datos = await asyncio.to_thread(
+        _consultar_status_en_backend, update.effective_chat.id
+    )
+
+    if codigo == 200 and datos:
+        texto = (
+            "📊 *Tu almacenamiento en CampusCloud*\n"
+            f"• Usado: {_formatear_mb(datos['usado_bytes'])} de {_formatear_mb(datos['cuota_bytes'])}\n"
+            f"• Libre: {_formatear_mb(datos['libre_bytes'])}\n"
+            f"• Ocupado: {datos['porcentaje_usado']}%"
+        )
+        await update.message.reply_text(texto, parse_mode="Markdown")
+    elif codigo == 404:
+        await update.message.reply_text(
+            "❌ Tu Telegram no está vinculado. Usá /start <tu DNI> para vincular la cuenta."
+        )
+    else:
+        await update.message.reply_text(
+            "⚠️ No pude consultar tu estado ahora. Intentá de nuevo en unos minutos."
+        )
+
+
 async def notificar_registro(bot: Bot, chat_id: int, aprobado: bool, motivo: Optional[str] = None) -> bool:
     """
     Avisa al usuario si su registro fue aprobado o rechazado.
@@ -95,6 +143,7 @@ async def notificar_registro(bot: Bot, chat_id: int, aprobado: bool, motivo: Opt
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("status", status))
     app.run_polling()
 
 
