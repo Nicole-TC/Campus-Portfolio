@@ -43,6 +43,7 @@ from logging import root
 from fastapi import FastAPI
 from app.database import verificar_conexion
 from app.excepciones import registrar_manejadores
+from app.routers import telegram
 
 app = FastAPI(
     title="CampusCloud API",
@@ -51,6 +52,8 @@ app = FastAPI(
     root_path="/api",
 )
 registrar_manejadores(app)
+
+app.include_router(telegram.router)
 
 
 @app.get("/salud")
