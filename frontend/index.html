@@ -1,17 +1,1106 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CampusCloud</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="css/estilos.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CampusCloud — Mis archivos</title>
+
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/estilo.css">
 </head>
-<body class="d-flex align-items-center justify-content-center vh-100 bg-dark text-white">
-  <div class="text-center">
-    <h1>☁️ CampusCloud</h1>
-    <p>Frontend en construcción — acá arranca 1° año.</p>
-    <p class="text-muted small">Páginas a crear: index.html (login), registro.html, explorador.html, admin.html</p>
+
+<body>
+
+  <div class="app-shell">
+
+    <header class="topbar" id="topbar"></header>
+
+    <div class="app-body">
+      <div class="cab-backdrop" id="backdrop"></div>
+
+      <!-- SIDEBAR -->
+      <aside class="sidebar" id="cabinet" aria-label="Menú lateral">
+        <div class="new-wrap">
+          <button class="btn-new" type="button" id="btnNuevo" aria-haspopup="menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+              aria-hidden="true" focusable="false">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>Nuevo</span>
+            <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        </div>
+
+        <nav class="cab-nav" aria-label="Secciones de CampusCloud" id="cabNav"></nav>
+
+        <div class="sidebar-footer">
+          <div class="storage-box">
+            <div class="storage-label">
+              <span class="storage-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                  stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <ellipse cx="12" cy="5" rx="8" ry="3" />
+                  <path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5" />
+                  <path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />
+                </svg>Almacenamiento</span>
+              <span class="storage-pct" id="storagePct">—</span>
+            </div>
+            <div class="storage-track" role="progressbar" aria-label="Almacenamiento usado" aria-valuemin="0"
+              aria-valuemax="100" aria-valuenow="0" id="storageTrack">
+              <div class="storage-fill" id="storageFill"></div>
+            </div>
+            <div class="storage-detail" id="storageDetail">Calculando uso…</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- CONTENIDO -->
+      <main class="main">
+        <div class="content" id="content" tabindex="-1"></div>
+      </main>
+    </div>
+
   </div>
+
+  <!-- Modal de Bootstrap: compartir un archivo o carpeta con un compañero (por correo o DNI) -->
+  <div class="modal fade" id="modalCompartir" tabindex="-1" aria-labelledby="shTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title" id="shTitulo">Compartir</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+
+        <div class="modal-body">
+          <p class="dc-dialog-text" id="shTexto"></p>
+
+          <div class="auth-alert" id="shError" role="alert" hidden>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"
+              focusable="false">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v5M12 16h.01" />
+            </svg>
+            <span></span>
+          </div>
+
+          <form id="shForm" novalidate>
+            <div class="field" id="shCampo">
+              <label for="shIdentificador">Correo o DNI del compañero</label>
+              <div class="input-wrap">
+                <input type="text" id="shIdentificador" name="identificador"
+                  placeholder="nombre@campus.edu.ar o 12.345.678" autocomplete="off" required
+                  aria-describedby="shIdError" aria-invalid="false">
+              </div>
+              <span class="field-error" id="shIdError">Ingresá un correo o un DNI válido (7 u 8 números).</span>
+            </div>
+
+            <div class="field">
+              <label for="shPermiso">Permiso</label>
+              <div class="input-wrap">
+                <select id="shPermiso" name="permiso">
+                  <option value="lector">Lector — ve y descarga</option>
+                  <option value="editor">Editor — también sube y renombra</option>
+                </select>
+              </div>
+            </div>
+
+            <button type="submit" class="dc-btn dc-btn-primary" id="shBtn">Compartir</button>
+          </form>
+
+          <h3 class="dc-subtitle">Personas con acceso</h3>
+          <div id="shLista"></div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="dc-btn dc-btn-ghost" data-bs-dismiss="modal">Listo</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/http.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/drive.js"></script>
+  <script src="js/api.js"></script>
+  <script>
+    // Protege la página: sin sesión válida manda a login.html.
+    const usuario = Auth.requerirSesion();
+    if (!usuario) {
+      throw new Error('Sin sesión: redirigiendo a login.html');
+    }
+    Drive.asegurar(usuario);
+
+    const $ = (sel, raiz = document) => raiz.querySelector(sel);
+    const { esc, iconos, formatoTamanio, formatoFecha } = UI;
+
+    $('#topbar').innerHTML = UI.topbarHtml(usuario);
+    const content = $('#content');
+    const searchInput = $('#searchInput');
+    const cerrarSidebar = UI.enlazarSidebar();
+    UI.atajoBuscar(searchInput);
+
+    const SECCIONES = [
+      { id: 'archivos', titulo: 'Mis archivos', icono: iconos.carpeta },
+      { id: 'compartidos', titulo: 'Compartidos conmigo', icono: iconos.compartir },
+      { id: 'papelera', titulo: 'Papelera', icono: iconos.papelera },
+    ];
+
+    const SUBTITULOS = {
+      alumno: 'Gestioná y organizá tus archivos académicos.',
+      docente: 'Gestioná y compartí recursos con tus alumnos.',
+      admin: 'Gestioná tus archivos personales.',
+    };
+
+    const MAX_CARPETAS_VISIBLES = 6;
+
+    const estado = {
+      seccion: 'archivos',
+      carpetaId: null,
+      busqueda: '',
+      filtroTipo: 'todos',
+      verTodasCarpetas: false,
+      compartidos: null, // { cargando, error, items }: lo llena cargarCompartidos() con lo que devuelve Api.compartidosConmigo()
+      tablas: {
+        archivos: { clave: 'modificado', dir: 'desc', pagina: 1 },
+        busqueda: { clave: 'nombre', dir: 'asc', pagina: 1 },
+        compartidos: { clave: 'nombre', dir: 'asc', pagina: 1 },
+        papelera: { clave: 'eliminadoEn', dir: 'desc', pagina: 1 },
+      },
+    };
+
+    // Sección inicial desde el hash (#papelera, #cuenta...) y búsqueda desde ?q= (la usa el panel admin).
+    const hashInicial = location.hash.replace('#', '');
+    if ([...SECCIONES.map(s => s.id), 'cuenta'].includes(hashInicial)) estado.seccion = hashInicial;
+    const qInicial = (new URLSearchParams(location.search).get('q') || '').trim();
+    if (qInicial) { estado.seccion = 'archivos'; estado.busqueda = qInicial; searchInput.value = qInicial; }
+
+    const tablaActual = () => (estado.seccion === 'archivos' && estado.busqueda) ? estado.tablas.busqueda : estado.tablas[estado.seccion];
+
+    // ---------------------------------------------------------------
+    // Navegación lateral y barra superior
+    // ---------------------------------------------------------------
+    $('#cabNav').innerHTML = `
+    <p class="nav-label">Espacio personal</p>
+    ${SECCIONES.map(s => `<button type="button" class="nav-link" data-section="${s.id}">${s.icono}${esc(s.titulo)}</button>`).join('')}
+    ${usuario.rol === 'admin' ? `
+      <p class="nav-label">Administración</p>
+      <a class="nav-link" href="admin.html">${iconos.usuarios}Gestión de usuarios y cuotas</a>` : ''}
+  `;
+
+    function actualizarNav() {
+      document.querySelectorAll('#cabNav [data-section]').forEach(b => {
+        const activa = b.dataset.section === estado.seccion;
+        b.classList.toggle('active', activa);
+        if (activa) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+      });
+    }
+
+    function navegar(seccion, carpetaId = null, { limpiarBusqueda = true } = {}) {
+      estado.seccion = seccion;
+      estado.carpetaId = carpetaId;
+      estado.verTodasCarpetas = false;
+      if (limpiarBusqueda) { estado.busqueda = ''; searchInput.value = ''; }
+      if (estado.tablas[seccion]) estado.tablas[seccion].pagina = 1;
+      try { history.replaceState(null, '', '#' + seccion); } catch { /* ignorar */ }
+      cerrarSidebar();
+      if (seccion === 'compartidos' && !carpetaId) cargarCompartidos(); else render();
+    }
+
+    // Pide a la API (GET /drive/shares/received) lo que compartieron conmigo y redibuja.
+    // La secuencia evita que una respuesta vieja pise a una más nueva.
+    let secuenciaCompartidos = 0;
+    async function cargarCompartidos() {
+      const mia = ++secuenciaCompartidos;
+      estado.compartidos = { cargando: true, error: '', items: [] };
+      render(); // muestra "Cargando…" mientras responde
+      const r = await Api.compartidosConmigo();
+      if (mia !== secuenciaCompartidos) return;
+      if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+      estado.compartidos = r.ok
+        ? { cargando: false, error: '', items: r.items || [] }
+        : { cargando: false, error: r.motivo, items: [] };
+      if (estado.seccion === 'compartidos') render();
+    }
+
+    $('#cabNav').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-section]');
+      if (b) navegar(b.dataset.section);
+    });
+
+    $('#btnCuenta').addEventListener('click', () => navegar('cuenta'));
+
+    $('#btnSalir').addEventListener('click', async () => {
+      const okConfirm = await UI.confirmar({ titulo: '¿Cerrar sesión?', textoOk: 'Cerrar sesión' });
+      if (okConfirm) { Auth.cerrarSesion(); Auth.irA('login.html'); }
+    });
+
+    // ---------------------------------------------------------------
+    // Búsqueda
+    // ---------------------------------------------------------------
+    let temporizadorBusqueda = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(temporizadorBusqueda);
+      temporizadorBusqueda = setTimeout(() => {
+        estado.busqueda = searchInput.value.trim();
+        if (estado.seccion === 'cuenta') estado.seccion = 'archivos';
+        estado.tablas.busqueda.pagina = 1;
+        if (estado.tablas[estado.seccion]) estado.tablas[estado.seccion].pagina = 1;
+        render();
+      }, 150);
+    });
+
+    // ---------------------------------------------------------------
+    // Almacenamiento (barra lateral)
+    // ---------------------------------------------------------------
+    function renderAlmacenamiento() {
+      const u = Auth.obtenerUsuario(usuario.id);
+      const pol = Auth.politicaEfectiva(u);
+      const uso = Drive.usoMB(u.id);
+      const pct = Math.min(100, (uso / pol.cuotaMB) * 100);
+      const fill = $('#storageFill');
+      requestAnimationFrame(() => { fill.style.width = pct.toFixed(1) + '%'; });
+      fill.classList.toggle('is-alert', pct >= 90);
+      $('#storagePct').textContent = Math.round(pct) + '%';
+      $('#storageDetail').innerHTML = `<strong>${esc(formatoTamanio(uso, { cero: '0 MB' }))}</strong> de ${esc(formatoTamanio(pol.cuotaMB))}`;
+      $('#storageTrack').setAttribute('aria-valuenow', Math.round(pct));
+    }
+
+    // ---------------------------------------------------------------
+    // Helpers de filas y columnas
+    // ---------------------------------------------------------------
+    const kebab = (id, nombre) => `<button type="button" class="kebab-btn" data-menu-fila="${esc(id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Más opciones de ${esc(nombre)}">${iconos.kebab}</button>`;
+
+    function filaDesdeNodo(n) {
+      return {
+        id: n.id,
+        nodo: n,
+        tipo: n.tipo,
+        nombre: n.nombre,
+        tamanioMB: n.tipo === 'carpeta' ? Drive.tamanioCarpetaMB(n.id) : n.tamanioMB,
+        modificado: Date.parse(n.modificado) || 0,
+      };
+    }
+
+    /** subtitulo(fila) devuelve el texto gris de abajo (por ejemplo, la carpeta donde está el archivo). */
+    function colNombre(subtitulo = null) {
+      return {
+        clave: 'nombre', titulo: 'Nombre', ordenable: true,
+        valor: f => f.nombre,
+        render: f => {
+          const n = f.nodo;
+          const compartido = n.propietarioId === usuario.id && Drive.cantidadComparticiones(n.id) > 0;
+          const nombre = n.tipo === 'carpeta'
+            ? `<button type="button" class="file-link" data-abrir="${esc(n.id)}">${esc(n.nombre)}</button>`
+            : `<span>${esc(n.nombre)}</span>`;
+          const sub = subtitulo ? subtitulo(f) : null;
+          return `<div class="file-cell">
+          ${UI.iconoNodo(n)}
+          <div class="file-text">
+            <div class="file-name">${nombre}${compartido ? `<span class="dc-shared-flag" title="Compartido con otras personas">${iconos.compartir}<span class="visually-hidden">Compartido</span></span>` : ''}</div>
+            ${sub ? `<div class="file-path">${esc(sub)}</div>` : ''}
+          </div>
+        </div>`;
+        },
+      };
+    }
+    const colTamanio = { clave: 'tamanioMB', titulo: 'Tamaño', ordenable: true, clase: 'col-size', valor: f => f.tamanioMB, render: f => esc(formatoTamanio(f.tamanioMB)) };
+    const colModificado = { clave: 'modificado', titulo: 'Modificado', ordenable: true, clase: 'col-date', valor: f => f.modificado, render: f => esc(formatoFecha(f.modificado)) };
+
+    /** Botones de la fila según lo que el usuario puede hacer (rol + permisos de la carpeta). */
+    function celdaAcciones(n) {
+      const acc = Drive.acciones(usuario.id, n);
+      let h = '';
+      if (acc.includes('compartir')) h += `<button type="button" class="dc-btn dc-btn-soft dc-btn-sm" data-compartir="${esc(n.id)}" aria-label="Compartir ${esc(n.nombre)}">Compartir</button>`;
+      if (acc.includes('descargar')) h += `<button type="button" class="icon-btn" data-descargar="${esc(n.id)}" aria-label="Descargar ${esc(n.nombre)}" title="Descargar">${iconos.descargar}</button>`;
+      if (acc.includes('eliminar')) h += `<button type="button" class="icon-btn is-danger" data-eliminar="${esc(n.id)}" aria-label="Mover ${esc(n.nombre)} a la papelera" title="Mover a la papelera">${iconos.papelera}</button>`;
+      h += kebab(n.id, n.nombre);
+      return `<span class="row-actions">${h}</span>`;
+    }
+    const colAcciones = { clave: 'acciones', titulo: 'Acciones', clase: 'col-actions', render: f => celdaAcciones(f.nodo) };
+
+    function migas(raizTexto, nodosRuta) {
+      const partes = [];
+      if (nodosRuta.length) partes.push(`<button type="button" class="dc-crumb" data-crumb="">${esc(raizTexto)}</button>`);
+      else partes.push(`<span class="dc-crumb dc-crumb-actual" aria-current="page">${esc(raizTexto)}</span>`);
+      nodosRuta.forEach((n, i) => {
+        const ultimo = i === nodosRuta.length - 1;
+        partes.push('<span class="dc-crumb-sep" aria-hidden="true">›</span>');
+        partes.push(ultimo
+          ? `<span class="dc-crumb dc-crumb-actual" aria-current="page">${esc(n.nombre)}</span>`
+          : `<button type="button" class="dc-crumb" data-crumb="${esc(n.id)}">${esc(n.nombre)}</button>`);
+      });
+      return `<nav class="dc-crumbs" aria-label="Ruta de carpetas">${partes.join('')}</nav>`;
+    }
+
+    function cardCarpeta(n) {
+      const cant = Drive.hijosDe(n.id).length;
+      return `
+      <div class="folder-card" data-id="${esc(n.id)}">
+        <span class="dc-ftype dc-ft-carpeta" aria-hidden="true">${iconos.carpeta}</span>
+        <div class="folder-card-text">
+          <button type="button" class="file-link" data-abrir="${esc(n.id)}">${esc(n.nombre)}</button>
+          <span>${cant} elemento${cant === 1 ? '' : 's'}</span>
+        </div>
+        ${kebab(n.id, n.nombre)}
+      </div>`;
+    }
+
+    const cabecera = (titulo, subtitulo, herramientas = '', migasHtml = '') => `
+    <div class="page-head">
+      <div>
+        ${migasHtml}
+        <h1 class="page-title">${esc(titulo)}</h1>
+        ${subtitulo ? `<p class="page-sub">${esc(subtitulo)}</p>` : ''}
+      </div>
+      ${herramientas ? `<div class="page-tools">${herramientas}</div>` : ''}
+    </div>`;
+
+    const botonSubir = `<button type="button" class="dc-btn dc-btn-primary" data-subir>${iconos.subir}Subir archivos</button>`;
+
+    // ---------------------------------------------------------------
+    // Vistas
+    // ---------------------------------------------------------------
+    function vistaBusqueda() {
+      const q = estado.busqueda;
+      const resultados = Drive.buscarPropios(usuario.id, q).map(filaDesdeNodo);
+      return `
+      ${cabecera('Resultados de búsqueda', `${resultados.length} resultado${resultados.length === 1 ? '' : 's'} para “${q}”`)}
+      <section>
+        ${UI.tabla({
+        caption: 'Resultados de búsqueda',
+        columnas: [colNombre(f => Drive.rutaTexto(f.nodo.padreId)), colTamanio, colModificado, colAcciones],
+        filas: resultados,
+        estado: estado.tablas.busqueda,
+        grupo: f => f.tipo === 'carpeta' ? 0 : 1,
+        vacio: 'No encontramos nada con ese nombre. Probá con otra palabra.',
+      })}
+      </section>`;
+    }
+
+    function vistaArchivos() {
+      if (estado.busqueda) return vistaBusqueda();
+      let actual = null;
+      if (estado.carpetaId) {
+        actual = Drive.nodo(estado.carpetaId);
+        if (!actual || actual.eliminado || actual.propietarioId !== usuario.id) {
+          estado.carpetaId = null;
+          actual = null;
+        }
+      }
+      const rutaNodos = actual ? Drive.ruta(actual.id) : [];
+      const hijos = Drive.listarHijos(usuario.id, estado.carpetaId);
+      const carpetas = hijos.filter(n => n.tipo === 'carpeta').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      const filasArchivos = hijos.filter(n => n.tipo === 'archivo').map(filaDesdeNodo)
+        .filter(f => estado.filtroTipo === 'todos' || UI.tipoDeArchivo(f.nodo.ext) === estado.filtroTipo);
+      const visibles = estado.verTodasCarpetas ? carpetas : carpetas.slice(0, MAX_CARPETAS_VISIBLES);
+
+      return `
+      ${cabecera(actual ? actual.nombre : 'Mis archivos', SUBTITULOS[usuario.rol], botonSubir, migas('Inicio', rutaNodos))}
+      ${carpetas.length ? `
+        <section aria-labelledby="tCarpetas">
+          <div class="section-head">
+            <h2 id="tCarpetas">Carpetas</h2>
+            ${carpetas.length > MAX_CARPETAS_VISIBLES ? `<button type="button" class="see-all" data-ver-todas aria-expanded="${estado.verTodasCarpetas}">${estado.verTodasCarpetas ? 'Ver menos' : `Ver todas (${carpetas.length})`}${iconos.chevron}</button>` : ''}
+          </div>
+          <div class="folder-grid">${visibles.map(cardCarpeta).join('')}</div>
+        </section>` : ''}
+      <section aria-labelledby="tArchivos">
+        <div class="section-head">
+          <div>
+            <h2 id="tArchivos">Archivos recientes</h2>
+            <p class="dc-muted">Últimos archivos modificados</p>
+          </div>
+          <label class="dc-inline-field">
+            <span class="visually-hidden">Filtrar por tipo de archivo</span>
+            <select id="filtroTipo">${UI.TIPOS.map(t => `<option value="${t.valor}"${estado.filtroTipo === t.valor ? ' selected' : ''}>${esc(t.texto)}</option>`).join('')}</select>
+          </label>
+        </div>
+        ${UI.tabla({
+        caption: 'Archivos de esta carpeta',
+        columnas: [colNombre(f => f.nodo.padreId ? Drive.nodo(f.nodo.padreId).nombre : 'Mis archivos'), colTamanio, colModificado, colAcciones],
+        filas: filasArchivos,
+        estado: estado.tablas.archivos,
+        vacio: estado.filtroTipo !== 'todos'
+          ? 'No hay archivos de ese tipo en esta carpeta.'
+          : actual ? 'Esta carpeta no tiene archivos. Usá “Subir archivos” para agregar el primero.' : 'Todavía no subiste archivos. Usá “Subir archivos” para agregar el primero.',
+      })}
+      </section>`;
+    }
+
+    function vistaCompartidos() {
+      const q = UI.normalizar(estado.busqueda);
+
+      // Adentro de una carpeta compartida
+      if (estado.carpetaId) {
+        const carpeta = Drive.nodo(estado.carpetaId);
+        if (!carpeta || !Drive.puede(usuario.id, carpeta, 'ver')) {
+          estado.carpetaId = null;
+        } else {
+          const rutaNodos = Drive.rutaCompartida(usuario.id, carpeta.id);
+          const filas = Drive.listarHijos(usuario.id, carpeta.id)
+            .filter(n => !q || UI.normalizar(n.nombre).includes(q))
+            .map(filaDesdeNodo);
+          const permiso = Drive.permisoSobre(usuario.id, carpeta);
+          const herramientas = UI.badge(permiso === 'editor' ? 'Podés editar' : 'Solo lectura', permiso === 'editor' ? 'info' : 'neutral')
+            + (Drive.puede(usuario.id, carpeta, 'subir') ? botonSubir : '');
+          return `
+          ${cabecera(carpeta.nombre, 'Compartido con vos.', herramientas, migas('Compartidos conmigo', rutaNodos))}
+          <section>
+            ${UI.tabla({
+            caption: `Contenido de ${carpeta.nombre}`,
+            columnas: [colNombre(null), colTamanio, colModificado, colAcciones],
+            filas,
+            estado: estado.tablas.compartidos,
+            grupo: f => f.tipo === 'carpeta' ? 0 : 1,
+            vacio: q ? 'No hay nada con ese nombre en esta carpeta.' : 'Esta carpeta está vacía.',
+          })}
+          </section>`;
+        }
+      }
+
+      const pedido = estado.compartidos;
+      if (!pedido || pedido.cargando) {
+        return `
+        ${cabecera('Compartidos conmigo', 'Archivos y carpetas que otras personas compartieron con vos.')}
+        <section>
+          <div class="empty-state" role="status" aria-live="polite">
+            <span class="dc-spinner" aria-hidden="true"></span>
+            <p>Cargando lo que compartieron con vos…</p>
+          </div>
+        </section>`;
+      }
+      if (pedido.error) {
+        return `
+        ${cabecera('Compartidos conmigo', 'Archivos y carpetas que otras personas compartieron con vos.')}
+        ${UI.errorVista(pedido.error)}`;
+      }
+
+      const filas = pedido.items
+        .filter(x => !q || UI.normalizar(x.nodo.nombre).includes(q))
+        .map(x => ({
+          id: x.nodo.id,
+          nodo: x.nodo,
+          tipo: x.nodo.tipo,
+          nombre: x.nodo.nombre,
+          propietario: x.propietario ? x.propietario.nombre : '—',
+          permiso: x.permiso,
+          tamanioMB: x.nodo.tipo === 'carpeta' ? Drive.tamanioCarpetaMB(x.nodo.id) : x.nodo.tamanioMB,
+          modificado: Date.parse(x.share.creado) || 0,
+        }));
+      const columnas = [
+        colNombre(null),
+        { clave: 'propietario', titulo: 'Compartido por', ordenable: true, valor: f => f.propietario, render: f => esc(f.propietario) },
+        { clave: 'permiso', titulo: 'Permiso', ordenable: true, valor: f => f.permiso, render: f => UI.badge(f.permiso === 'editor' ? 'Editor' : 'Lector', f.permiso === 'editor' ? 'info' : 'neutral') },
+        colTamanio,
+        { ...colModificado, titulo: 'Compartido el' },
+        colAcciones,
+      ];
+      return `
+      ${cabecera('Compartidos conmigo', 'Archivos y carpetas que otras personas compartieron con vos.')}
+      <section>
+        ${UI.tabla({
+        caption: 'Elementos compartidos conmigo',
+        columnas, filas,
+        estado: estado.tablas.compartidos,
+        grupo: f => f.tipo === 'carpeta' ? 0 : 1,
+        vacio: q ? 'No hay compartidos con ese nombre.' : 'Todavía no tenés archivos compartidos por otras personas.',
+      })}
+      </section>`;
+    }
+
+    function vistaPapelera() {
+      const q = UI.normalizar(estado.busqueda);
+      const todos = Drive.listarPapelera(usuario.id);
+      const filas = todos
+        .filter(n => !q || UI.normalizar(n.nombre).includes(q))
+        .map(n => ({
+          id: n.id, nodo: n, tipo: n.tipo, nombre: n.nombre,
+          tamanioMB: Drive.tamanioEnPapelera(n),
+          eliminadoEn: Date.parse(n.eliminadoEn) || 0,
+        }));
+      const columnas = [
+        {
+          clave: 'nombre', titulo: 'Nombre', ordenable: true, valor: f => f.nombre,
+          render: f => `<div class="file-cell">${UI.iconoNodo(f.nodo)}<div class="file-text"><div class="file-name"><span>${esc(f.nombre)}</span></div></div></div>`,
+        },
+        colTamanio,
+        { clave: 'eliminadoEn', titulo: 'Eliminado', ordenable: true, clase: 'col-date', valor: f => f.eliminadoEn, render: f => esc(formatoFecha(f.eliminadoEn)) },
+        {
+          clave: 'acciones', titulo: 'Acciones', clase: 'col-actions',
+          render: f => `<span class="row-actions">
+          <button type="button" class="icon-btn" data-restaurar="${esc(f.id)}" aria-label="Restaurar ${esc(f.nombre)}" title="Restaurar">${iconos.restaurar}</button>
+          <button type="button" class="icon-btn is-danger" data-borrar-def="${esc(f.id)}" aria-label="Eliminar ${esc(f.nombre)} definitivamente" title="Eliminar definitivamente">${iconos.papelera}</button>
+        </span>`,
+        },
+      ];
+      const vaciar = todos.length ? `<button type="button" class="dc-btn dc-btn-outline-danger" id="btnVaciar">${iconos.papelera}Vaciar papelera</button>` : '';
+      return `
+      ${cabecera('Papelera', 'Lo que está acá sigue ocupando espacio hasta que lo elimines definitivamente.', vaciar)}
+      <section>
+        ${UI.tabla({
+        caption: 'Elementos en la papelera',
+        columnas, filas,
+        estado: estado.tablas.papelera,
+        vacio: q ? 'No hay nada con ese nombre en la papelera.' : 'La papelera está vacía.',
+      })}
+      </section>`;
+    }
+
+    function vistaCuenta() {
+      const u = Auth.obtenerUsuario(usuario.id);
+      const pol = Auth.politicaEfectiva(u);
+      const uso = Drive.usoMB(u.id);
+      const enPapelera = Drive.usoPapeleraMB(u.id);
+      const pct = Math.min(100, (uso / pol.cuotaMB) * 100);
+      const origen = (campo) => {
+        const o = pol.origen[campo];
+        if (o === 'usuario') return 'Excepción de tu cuenta';
+        if (o === 'rol') return `Rol ${Auth.ROLES[u.rol]}`;
+        return 'Política general';
+      };
+      return `
+      ${cabecera('Mi cuenta', 'Tus datos y los límites de tu espacio.')}
+      <section aria-labelledby="tPerfil">
+        <div class="dc-profile">
+          <div class="dc-profile-head">
+            <div class="dc-profile-avatar" aria-hidden="true">${esc(UI.iniciales(u.nombre))}</div>
+            <div class="dc-profile-id">
+              <h2 id="tPerfil">${esc(u.nombre)}</h2>
+              <p>${esc(u.email)}</p>
+              <div class="dc-profile-badges">
+                ${UI.badgeRol(u.rol)}
+                ${UI.badge(Auth.ESTADOS[u.estado], 'ok')}
+              </div>
+            </div>
+          </div>
+          <div class="dc-profile-body">
+            <h3>Datos de la cuenta</h3>
+            <dl class="dc-data-grid">
+              <div><dt>DNI</dt><dd>${esc(Auth.formatearDNI(u.dni) || '—')}</dd></div>
+              <div><dt>Miembro desde</dt><dd>${esc(formatoFecha(u.creado))}</dd></div>
+              <div><dt>Rol</dt><dd>${esc(Auth.ROLES[u.rol])}</dd></div>
+            </dl>
+
+            <h3>Almacenamiento</h3>
+            <div class="dc-meter" role="progressbar" aria-label="Almacenamiento usado" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}">
+              <div class="dc-meter-fill ${pct >= 90 ? 'is-alert' : ''}" style="width:${pct.toFixed(1)}%"></div>
+            </div>
+            <p class="dc-muted"><strong>${esc(formatoTamanio(uso, { cero: '0 MB' }))}</strong> usados de ${esc(formatoTamanio(pol.cuotaMB))} (${pct.toFixed(1)}%)</p>
+
+            <h3>Límites de tu cuenta</h3>
+            <table class="dc-limits">
+              <tbody>
+                <tr><th scope="row">Espacio total</th><td>${esc(formatoTamanio(pol.cuotaMB))}<span class="dc-origin">${esc(origen('cuotaMB'))}</span></td></tr>
+                <tr><th scope="row">Tamaño máximo por archivo</th><td>${esc(formatoTamanio(pol.maxArchivoMB))}<span class="dc-origin">${esc(origen('maxArchivoMB'))}</span></td></tr>
+                <tr><th scope="row">Extensiones</th><td>${esc(Auth.describirExtensiones(pol.extensiones))}<span class="dc-origin">${esc(origen('extensiones'))}</span></td></tr>
+                <tr><th scope="row">Ocupado por la papelera</th><td>${esc(formatoTamanio(enPapelera, { cero: '0 MB' }))}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>`;
+    }
+
+    function render() {
+      actualizarNav();
+      renderAlmacenamiento();
+      const titulo = (SECCIONES.find(s => s.id === estado.seccion) || { titulo: 'Mi cuenta' }).titulo;
+      document.title = `CampusCloud — ${titulo}`;
+      searchInput.placeholder = estado.seccion === 'compartidos' ? 'Buscar en compartidos…'
+        : estado.seccion === 'papelera' ? 'Buscar en la papelera…' : 'Buscar archivos y carpetas…';
+
+      const vistas = { archivos: vistaArchivos, compartidos: vistaCompartidos, papelera: vistaPapelera, cuenta: vistaCuenta };
+      try {
+        content.innerHTML = vistas[estado.seccion]();
+      } catch (err) {
+        // Si una sección falla al dibujarse, se muestra un aviso con "Reintentar" en vez de quedar en blanco.
+        console.error(err);
+        content.innerHTML = UI.errorVista('No pudimos mostrar esta sección. Probá de nuevo.');
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Acciones
+    // ---------------------------------------------------------------
+    function resultado(r, mensajeOk, { redibujar = true } = {}) {
+      if (!r.ok) {
+        if (r.status === 401) { Auth.irA('login.html?e=expirada'); return false; }
+        UI.toast(r.motivo, { tipo: 'error' });
+        return false;
+      }
+      if (mensajeOk) UI.toast(mensajeOk, { tipo: 'ok' });
+      if (redibujar) render();
+      return true;
+    }
+
+    function abrirCarpeta(id) {
+      if (estado.seccion === 'compartidos') navegar('compartidos', id);
+      else navegar('archivos', id);
+    }
+
+    function destinoSubida() {
+      if (estado.seccion === 'compartidos') {
+        if (!estado.carpetaId) return { ok: false, motivo: 'Abrí una carpeta compartida en la que tengas permiso de editor para agregar contenido.' };
+        const n = Drive.nodo(estado.carpetaId);
+        if (!n || !Drive.puede(usuario.id, n, 'subir')) return { ok: false, motivo: 'Solo tenés permiso de lectura en esta carpeta.' };
+        return { ok: true, padreId: n.id };
+      }
+      if (estado.seccion === 'archivos' && !estado.busqueda) return { ok: true, padreId: estado.carpetaId };
+      return { ok: true, padreId: null };
+    }
+
+    async function crearCarpeta() {
+      const d = destinoSubida();
+      if (!d.ok) { UI.aviso({ titulo: 'No se puede crear la carpeta acá', mensaje: d.motivo }); return; }
+      const v = await UI.formulario({
+        titulo: 'Carpeta nueva',
+        campos: [{ nombre: 'nombre', etiqueta: 'Nombre de la carpeta', tipo: 'text', requerido: true, validar: Drive.validarNombre }],
+        textoOk: 'Crear carpeta',
+        alEnviar: async (datos) => { const r = await Api.crearCarpeta(d.padreId, datos.nombre); return r.ok ? null : r.motivo; },
+      });
+      if (v) { render(); UI.toast('Carpeta creada.', { tipo: 'ok' }); }
+    }
+
+    // ---- Diálogo de subida: arrastrar y soltar, validación previa y subida ----
+    function abrirSubida() {
+      const d = destinoSubida();
+      if (!d.ok) { UI.aviso({ titulo: 'No se puede subir archivos acá', mensaje: d.motivo }); return; }
+
+      const carpetaDestino = d.padreId ? Drive.nodo(d.padreId) : null;
+      const dueno = Auth.obtenerUsuario(carpetaDestino ? carpetaDestino.propietarioId : usuario.id);
+      const pol = Auth.politicaEfectiva(dueno);
+      const ext = pol.extensiones;
+      const listaExt = ext && ext.lista ? ext.lista.map(x => '.' + x).join(', ') : '';
+      const fraseExt = !ext || ext.modo === 'todas' ? 'Se permiten todas las extensiones.'
+        : ext.modo === 'permitidas' ? `Solo se permiten: ${listaExt}.`
+          : `Extensiones no permitidas: ${listaExt}.`;
+
+      const dlg = UI.dialogo(`
+      <div class="dc-upl">
+        <div class="dc-dialog-head">
+          <div>
+            <h2 class="dc-dialog-title" id="upTitulo">Subir archivo</h2>
+            <p class="dc-dialog-sub">Agregá contenido a “${esc(carpetaDestino ? carpetaDestino.nombre : 'Mis archivos')}”</p>
+          </div>
+          <button type="button" class="dc-x" data-cerrar aria-label="Cerrar">${iconos.cerrar}</button>
+        </div>
+        <div class="dc-dialog-main">
+          <div class="dc-drop" id="upDrop">
+            <span class="dc-drop-icon" aria-hidden="true">${iconos.subir}</span>
+            <p class="dc-drop-title">Arrastrá y soltá tu archivo acá</p>
+            <p class="dc-drop-sub">o <button type="button" class="dc-link" id="upElegir">seleccioná un archivo</button> desde tu equipo</p>
+            <p class="dc-drop-hint">PDF, DOCX, ZIP, JPG y más</p>
+            <input type="file" id="upInput" multiple hidden>
+          </div>
+          <ul class="dc-upl-list" id="upLista" aria-live="polite"></ul>
+          <div class="dc-limit-box">
+            ${iconos.info}
+            <div>
+              <strong>Límite máximo por archivo: ${esc(formatoTamanio(pol.maxArchivoMB))}.</strong>
+              <span>${esc(fraseExt)}</span>
+            </div>
+          </div>
+        </div>
+        <div class="dc-dialog-foot">
+          <button type="button" class="dc-btn dc-btn-ghost" id="upCancelar" data-cerrar>Cancelar</button>
+          <button type="button" class="dc-btn dc-btn-primary" id="upSubir" disabled>Subir archivo</button>
+        </div>
+      </div>`, { ancho: 'upload' });
+      dlg.setAttribute('aria-labelledby', 'upTitulo');
+
+      const lista = dlg.querySelector('#upLista');
+      const drop = dlg.querySelector('#upDrop');
+      const input = dlg.querySelector('#upInput');
+      const btnSubir = dlg.querySelector('#upSubir');
+      const btnCancelar = dlg.querySelector('#upCancelar');
+      let cola = [];
+      let subiendo = false;
+      let seq = 0;
+
+      function pintar() {
+        lista.innerHTML = cola.map(it => {
+          const nombre = it.file.name;
+          let lado;
+          if (it.estado === 'subiendo') lado = `<span class="dc-upl-pct" data-pct="${it.uid}">${it.progreso || 0}%</span>`;
+          else if (it.estado === 'ok') lado = `<span class="dc-upl-ok">${iconos.check}</span>`;
+          else lado = `<button type="button" class="icon-btn" data-quitar="${it.uid}" aria-label="Quitar ${esc(nombre)} de la lista">${iconos.cerrar}</button>`;
+          return `<li class="dc-upl-item${it.estado === 'error' ? ' is-error' : ''}">
+          ${UI.iconoArchivo(Auth.extensionDe(nombre))}
+          <div class="dc-upl-info">
+            <strong>${esc(nombre)}</strong>
+            <span>${esc(formatoTamanio(it.file.size / 1048576, { cero: '0 KB' }))}</span>
+            ${it.error ? `<em class="dc-upl-error">${esc(it.error)}</em>` : ''}
+            ${it.estado === 'subiendo' ? `<div class="dc-progress" role="progressbar" aria-label="Progreso de ${esc(nombre)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${it.progreso || 0}" data-prog="${it.uid}"><span style="width:${it.progreso || 0}%"></span></div>` : ''}
+          </div>
+          ${lado}
+        </li>`;
+        }).join('');
+        const pendientes = cola.filter(i => i.estado === 'pendiente').length;
+        btnSubir.disabled = subiendo || !pendientes;
+        btnSubir.textContent = pendientes > 1 ? `Subir ${pendientes} archivos` : 'Subir archivo';
+      }
+
+      // Actualiza solo la barra del archivo que se está subiendo (sin redibujar toda la lista).
+      function actualizarProgreso(it) {
+        const barra = lista.querySelector(`[data-prog="${it.uid}"]`);
+        if (!barra) return;
+        barra.setAttribute('aria-valuenow', it.progreso);
+        barra.firstElementChild.style.width = it.progreso + '%';
+        const pct = lista.querySelector(`[data-pct="${it.uid}"]`);
+        if (pct) pct.textContent = it.progreso + '%';
+      }
+
+      function agregar(archivos) {
+        Array.from(archivos).forEach(file => {
+          const motivo = Drive.validarSubida(usuario.id, d.padreId, file); // revisa extensión, tamaño y cuota antes de subir
+          cola.push({ uid: ++seq, file, estado: motivo ? 'error' : 'pendiente', error: motivo || '' });
+        });
+        btnCancelar.textContent = 'Cancelar';
+        pintar();
+      }
+
+      dlg.querySelector('#upElegir').addEventListener('click', () => input.click());
+      input.addEventListener('change', () => { agregar(input.files); input.value = ''; });
+      drop.addEventListener('click', (e) => { if (!e.target.closest('button')) input.click(); });
+      ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('is-over'); }));
+      ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('is-over'); }));
+      drop.addEventListener('drop', (e) => { if (e.dataTransfer && e.dataTransfer.files.length) agregar(e.dataTransfer.files); });
+      // Evita que soltar un archivo fuera de la zona abra el archivo en la pestaña.
+      dlg.addEventListener('dragover', (e) => e.preventDefault());
+      dlg.addEventListener('drop', (e) => e.preventDefault());
+
+      dlg.addEventListener('click', (e) => {
+        if (e.target.closest('[data-cerrar]')) { dlg.close(); return; }
+        const q = e.target.closest('[data-quitar]');
+        if (q) { cola = cola.filter(i => String(i.uid) !== q.dataset.quitar); pintar(); }
+      });
+
+      btnSubir.addEventListener('click', async () => {
+        subiendo = true;
+        pintar();
+        let subidos = 0;
+        for (const it of cola.filter(i => i.estado === 'pendiente')) {
+          it.estado = 'subiendo';
+          pintar();
+          it.progreso = 0;
+          const r = await Api.subirArchivo(d.padreId, it.file, (p) => { it.progreso = p; actualizarProgreso(it); });
+          if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+          if (r.ok) { it.estado = 'ok'; subidos++; } else { it.estado = 'error'; it.error = r.motivo; }
+          pintar();
+        }
+        subiendo = false;
+        if (subidos) UI.toast(subidos === 1 ? 'Archivo subido.' : `${subidos} archivos subidos.`, { tipo: 'ok' });
+        if (cola.some(i => i.estado === 'error')) {
+          cola = cola.filter(i => i.estado !== 'ok'); // deja solo los que fallaron para que se vea por qué
+          btnCancelar.textContent = 'Cerrar';
+          pintar();
+        } else {
+          dlg.close();
+        }
+      });
+
+      dlg.addEventListener('close', render);
+      pintar();
+    }
+
+    $('#btnNuevo').addEventListener('click', () => {
+      UI.menuContextual($('#btnNuevo'), [
+        { texto: 'Carpeta nueva', icono: iconos.carpeta, accion: crearCarpeta },
+        { texto: 'Subir archivos', icono: iconos.subir, accion: abrirSubida },
+      ], { alinear: 'izq', minAncho: $('#btnNuevo').offsetWidth });
+    });
+
+    async function accionRenombrar(id) {
+      const n = Drive.nodo(id);
+      if (!n) return;
+      const v = await UI.formulario({
+        titulo: n.tipo === 'carpeta' ? 'Renombrar carpeta' : 'Renombrar archivo',
+        campos: [{ nombre: 'nombre', etiqueta: 'Nuevo nombre', tipo: 'text', requerido: true, validar: Drive.validarNombre }],
+        valores: { nombre: n.nombre },
+        textoOk: 'Renombrar',
+        alEnviar: async (d) => { const r = await Api.renombrar(id, d.nombre); return r.ok ? null : r.motivo; },
+      });
+      if (v) { render(); UI.toast('Nombre actualizado.', { tipo: 'ok' }); }
+    }
+
+    async function accionMover(id) {
+      const n = Drive.nodo(id);
+      if (!n) return;
+      const opciones = [{ valor: '', texto: 'Mis archivos (raíz)' }]
+        .concat(Drive.carpetasDestino(usuario.id, n.tipo === 'carpeta' ? id : null).map(c => ({ valor: c.id, texto: c.etiqueta })));
+      const v = await UI.formulario({
+        titulo: `Mover “${n.nombre}”`,
+        campos: [{ nombre: 'destino', etiqueta: 'Carpeta de destino', tipo: 'select', opciones }],
+        valores: { destino: n.padreId || '' },
+        textoOk: 'Mover',
+        alEnviar: async (d) => { const r = await Api.mover(id, d.destino || null); return r.ok ? null : r.motivo; },
+      });
+      if (v) { render(); UI.toast('Elemento movido.', { tipo: 'ok' }); }
+    }
+
+    async function accionEliminar(id) {
+      const n = Drive.nodo(id);
+      if (!n) return;
+      const okConfirm = await UI.confirmar({
+        titulo: `¿Mover “${n.nombre}” a la papelera?`,
+        mensaje: n.tipo === 'carpeta'
+          ? 'Se va a mover junto con todo lo que tiene adentro. Podés restaurarla mientras no vacíes la papelera.'
+          : 'Podés restaurarlo mientras no vacíes la papelera.',
+        textoOk: 'Mover a la papelera',
+        peligro: true,
+      });
+      if (!okConfirm) return;
+      const r = await Api.eliminar(id);
+      if (!r.ok) { UI.toast(r.motivo, { tipo: 'error' }); return; }
+      render();
+      UI.toast(`“${n.nombre}” está en la papelera.`, {
+        accion: { texto: 'Deshacer', fn: async () => resultado(await Api.restaurar(id), 'Restaurado.') },
+      });
+    }
+
+    async function accionDescargar(id) {
+      resultado(await Api.descargar(id), 'Descarga simulada iniciada.', { redibujar: false });
+    }
+
+    async function accionQuitarCompartido(id) {
+      const n = Drive.nodo(id);
+      const shareId = Drive.comparticionDe(usuario.id, id);
+      if (!n || !shareId) return;
+      const okConfirm = await UI.confirmar({
+        titulo: `¿Dejar de ver “${n.nombre}”?`,
+        mensaje: 'Va a desaparecer de tu lista. La persona que lo compartió puede volver a invitarte.',
+        textoOk: 'Quitar de mi lista',
+        peligro: true,
+      });
+      if (!okConfirm) return;
+      if (resultado(await Api.quitarComparticion(shareId), 'Quitado de tu lista.', { redibujar: false })) cargarCompartidos();
+    }
+
+    // ---- Modal de Bootstrap para compartir (#modalCompartir) ----
+    const sh = {
+      modal: $('#modalCompartir'),
+      titulo: $('#shTitulo'),
+      texto: $('#shTexto'),
+      error: $('#shError'),
+      form: $('#shForm'),
+      campo: $('#shCampo'),
+      input: $('#shIdentificador'),
+      permiso: $('#shPermiso'),
+      btn: $('#shBtn'),
+      lista: $('#shLista'),
+    };
+    let compartirId = null; // elemento que se está compartiendo mientras el modal está abierto
+
+    function shMostrarError(msg) {
+      sh.error.querySelector('span').textContent = msg || '';
+      sh.error.hidden = !msg;
+    }
+
+    const shSelectPermiso = (valor, attrs) => `
+    <select ${attrs}>
+      <option value="lector"${valor === 'lector' ? ' selected' : ''}>Lector — ve y descarga</option>
+      <option value="editor"${valor === 'editor' ? ' selected' : ''}>Editor — también sube y renombra</option>
+    </select>`;
+
+    /** Dibuja "Personas con acceso" del elemento abierto en el modal. */
+    function shPintarLista() {
+      const lista = compartirId ? Drive.comparticionesDe(compartirId) : [];
+      sh.lista.innerHTML = lista.length
+        ? `<ul class="dc-share-list">${lista.map(s => `
+          <li>
+            <div class="dc-share-who"><strong>${esc(s.nombre)}</strong><span>${esc(s.email)}</span></div>
+            ${shSelectPermiso(s.permiso, `data-share-permiso="${esc(s.id)}" aria-label="Permiso de ${esc(s.nombre)}"`)}
+            <button type="button" class="icon-btn is-danger" data-share-quitar="${esc(s.id)}" aria-label="Quitar acceso a ${esc(s.nombre)}">${iconos.cerrar}</button>
+          </li>`).join('')}</ul>`
+        : '<p class="dc-muted">Todavía no compartiste este elemento con nadie.</p>';
+    }
+
+    function abrirCompartir(id) {
+      const n = Drive.nodo(id);
+      if (!n) return;
+      compartirId = id;
+      sh.titulo.textContent = `Compartir “${n.nombre}”`;
+      sh.texto.textContent = n.tipo === 'carpeta'
+        ? 'Las personas que invites van a ver también todo lo que está adentro de la carpeta.'
+        : 'Escribí el correo o el DNI del compañero al que le querés dar acceso.';
+      sh.form.reset();
+      Auth.marcarCampo(sh.campo, sh.input, true);
+      shMostrarError('');
+      shPintarLista();
+      bootstrap.Modal.getOrCreateInstance(sh.modal).show();
+    }
+
+    sh.modal.addEventListener('shown.bs.modal', () => sh.input.focus());
+    // Al cerrar se redibuja la vista, así aparece (o desaparece) el ícono de "compartido".
+    sh.modal.addEventListener('hidden.bs.modal', () => { compartirId = null; render(); });
+
+    sh.form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      shMostrarError('');
+      const id = compartirId;
+      const destinatario = sh.input.value.trim();
+
+      const valido = Auth.validarIdentificador(destinatario);
+      Auth.marcarCampo(sh.campo, sh.input, valido);
+      if (!valido) { sh.input.focus(); return; }
+
+      UI.cargando(sh.btn, true);
+      const r = await Api.compartir(id, destinatario, sh.permiso.value);
+      UI.cargando(sh.btn, false);
+
+      if (!r.ok) {
+        if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+        shMostrarError(r.motivo);
+        return;
+      }
+      if (compartirId === id) {
+        sh.form.reset();
+        shPintarLista();
+        sh.input.focus();
+      }
+      UI.toast(`Compartido con ${r.nombre}.`, { tipo: 'ok' });
+    });
+
+    sh.lista.addEventListener('change', async (e) => {
+      const sel = e.target.closest('[data-share-permiso]');
+      if (!sel) return;
+      const r = await Api.cambiarPermisoComparticion(sel.dataset.sharePermiso, sel.value);
+      if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+      if (!r.ok) { shMostrarError(r.motivo); shPintarLista(); return; }
+      UI.toast('Permiso actualizado.', { tipo: 'ok' });
+    });
+
+    sh.lista.addEventListener('click', async (e) => {
+      const q = e.target.closest('[data-share-quitar]');
+      if (!q) return;
+      const r = await Api.quitarComparticion(q.dataset.shareQuitar);
+      if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
+      if (!r.ok) { shMostrarError(r.motivo); return; }
+      shPintarLista();
+      UI.toast('Acceso quitado.', { tipo: 'ok' });
+    });
+
+    // ---- Menú de cada fila / tarjeta ----
+    function itemsMenu(n) {
+      const acc = Drive.acciones(usuario.id, n);
+      const items = [];
+      if (n.tipo === 'carpeta') items.push({ texto: 'Abrir', icono: iconos.abrir, accion: () => abrirCarpeta(n.id) });
+      if (acc.includes('descargar')) items.push({ texto: 'Descargar', icono: iconos.descargar, accion: () => accionDescargar(n.id) });
+      if (acc.includes('renombrar')) items.push({ texto: 'Renombrar', icono: iconos.editar, accion: () => accionRenombrar(n.id) });
+      if (acc.includes('mover')) items.push({ texto: 'Mover a…', icono: iconos.mover, accion: () => accionMover(n.id) });
+      if (acc.includes('compartir')) items.push({ texto: 'Compartir…', icono: iconos.compartir, accion: () => abrirCompartir(n.id) });
+      if (n.propietarioId !== usuario.id && Drive.esRaizCompartida(usuario.id, n)) {
+        items.push({ separador: true });
+        items.push({ texto: 'Quitar de mi lista', icono: iconos.cerrar, peligro: true, accion: () => accionQuitarCompartido(n.id) });
+      }
+      if (acc.includes('eliminar')) {
+        items.push({ separador: true });
+        items.push({ texto: 'Mover a la papelera', icono: iconos.papelera, peligro: true, accion: () => accionEliminar(n.id) });
+      }
+      return items;
+    }
+
+    // ---------------------------------------------------------------
+    // Eventos delegados del contenido
+    // ---------------------------------------------------------------
+    UI.enlazarTabla(content, tablaActual, render);
+
+    content.addEventListener('change', (e) => {
+      if (e.target.id === 'filtroTipo') {
+        estado.filtroTipo = e.target.value;
+        estado.tablas.archivos.pagina = 1;
+        render();
+        const s = $('#filtroTipo');
+        if (s) s.focus();
+      }
+    });
+
+    content.addEventListener('click', async (e) => {
+      if (e.target.closest('[data-reintentar]')) {
+        if (estado.seccion === 'compartidos' && !estado.carpetaId) cargarCompartidos(); else render();
+        return;
+      }
+
+      const k = e.target.closest('[data-menu-fila]');
+      if (k) {
+        const n = Drive.nodo(k.dataset.menuFila);
+        if (n) UI.menuContextual(k, itemsMenu(n));
+        return;
+      }
+
+      const abrir = e.target.closest('[data-abrir]');
+      if (abrir) { abrirCarpeta(abrir.dataset.abrir); return; }
+
+      const crumb = e.target.closest('[data-crumb]');
+      if (crumb) { navegar(estado.seccion, crumb.dataset.crumb || null); return; }
+
+      if (e.target.closest('[data-subir]')) { abrirSubida(); return; }
+
+      const comp = e.target.closest('[data-compartir]');
+      if (comp) { abrirCompartir(comp.dataset.compartir); return; }
+
+      const desc = e.target.closest('[data-descargar]');
+      if (desc) { accionDescargar(desc.dataset.descargar); return; }
+
+      const elim = e.target.closest('[data-eliminar]');
+      if (elim) { accionEliminar(elim.dataset.eliminar); return; }
+
+      if (e.target.closest('[data-ver-todas]')) {
+        estado.verTodasCarpetas = !estado.verTodasCarpetas;
+        render();
+        const b = $('[data-ver-todas]');
+        if (b) b.focus();
+        return;
+      }
+
+      const rest = e.target.closest('[data-restaurar]');
+      if (rest) {
+        const r = await Api.restaurar(rest.dataset.restaurar);
+        resultado(r, r.ok && r.alRaiz ? 'Restaurado en “Mis archivos” porque su carpeta original ya no está.' : 'Restaurado.');
+        return;
+      }
+
+      const borrar = e.target.closest('[data-borrar-def]');
+      if (borrar) {
+        const n = Drive.nodo(borrar.dataset.borrarDef);
+        if (!n) return;
+        const okConfirm = await UI.confirmar({
+          titulo: `¿Eliminar “${n.nombre}” definitivamente?`,
+          mensaje: 'Esta acción no se puede deshacer.',
+          textoOk: 'Eliminar definitivamente',
+          peligro: true,
+        });
+        if (okConfirm) resultado(await Api.eliminarDefinitivo(n.id), 'Eliminado definitivamente.');
+        return;
+      }
+
+      if (e.target.closest('#btnVaciar')) {
+        const okConfirm = await UI.confirmar({
+          titulo: '¿Vaciar la papelera?',
+          mensaje: 'Se van a eliminar definitivamente todos los elementos. Esta acción no se puede deshacer.',
+          textoOk: 'Vaciar papelera',
+          peligro: true,
+        });
+        if (okConfirm) resultado(await Api.vaciarPapelera(), 'Papelera vaciada.');
+        return;
+      }
+
+      // Click en la tarjeta de una carpeta (fuera del menú) → abrirla
+      const card = e.target.closest('.folder-card');
+      if (card && !e.target.closest('.kebab-btn')) abrirCarpeta(card.dataset.id);
+    });
+
+    if (estado.seccion === 'compartidos') cargarCompartidos(); else render();
+  </script>
+
 </body>
+
 </html>
