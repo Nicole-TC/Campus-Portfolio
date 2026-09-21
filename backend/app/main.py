@@ -43,6 +43,7 @@ from logging import root
 from fastapi import FastAPI
 from app.database import verificar_conexion
 from app.routers import usuarios
+from app.excepciones import registrar_manejadores
 from app.routers import telegram
 
 app = FastAPI(
@@ -51,6 +52,7 @@ app = FastAPI(
     version="0.1.0",
     root_path="/api",
 )
+registrar_manejadores(app)
 
 app.include_router(usuarios.router)
 app.include_router(telegram.router)

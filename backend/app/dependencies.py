@@ -1,45 +1,27 @@
-"""Dependencias de seguridad: validación del JWT y usuario autenticado."""
-from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from fastapi import Depends
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-
-from app.config import settings
 from app.database import get_db
 from app.models import Usuario
+from app.security import decodificar_token
+from app.excepciones import ErrorNoAutorizado, ErrorProhibido
 
-# Nombre del estado que habilita el ingreso (catálogo 'estados' de la BD)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 ESTADO_ACTIVO = "ACTIVO"
 
-bearer_scheme = HTTPBearer()
-
-
 def get_current_user(
-    credenciales: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    token: str = Depends(oauth2_scheme), 
+    db: Session = Depends(get_db)
 ) -> Usuario:
-    """Decodifica el JWT ('sub' = id del usuario) y devuelve al usuario autenticado."""
-    error_401 = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Token inválido o expirado",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(
-            credenciales.credentials,
-            settings.JWT_SECRET,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-        usuario_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
-        raise error_401
+    
+    payload = decodificar_token(token)
+    usuario_id = payload.get("id_usuario")
 
     usuario = db.get(Usuario, usuario_id)
     if usuario is None:
-        raise error_401
+        raise ErrorNoAutorizado("El usuario ya no existe")
+        
     if usuario.estado.nombre != ESTADO_ACTIVO:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cuenta no activada",
-        )
+        raise ErrorProhibido("Cuenta no activada")
+        
     return usuario
