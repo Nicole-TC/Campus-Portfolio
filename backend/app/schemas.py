@@ -37,6 +37,17 @@ class ArchivoPapeleraOut(BaseModel):
     en_papelera: bool
     fecha_eliminacion: Optional[datetime]
 
+
+class ArchivoResumenOut(BaseModel):
+    """Resumen de un archivo pensado para el bot: sin rutas ni datos internos."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre_original: str
+    tamano_bytes: int
+    fecha_subida: datetime
+
+
 class RegistroIn(BaseModel):
     nombre: str
     apellido: str

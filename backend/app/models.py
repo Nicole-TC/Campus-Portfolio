@@ -85,3 +85,4 @@ class Archivo(Base):
     tamano_bytes: Mapped[int] = mapped_column(BigInteger)
     en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
     fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    fecha_subida: Mapped[datetime] = mapped_column(DateTime(timezone=True))
