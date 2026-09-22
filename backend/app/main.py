@@ -42,7 +42,7 @@ Al incluirlo aquí:
 from logging import root
 from fastapi import FastAPI
 from app.database import verificar_conexion
-from app.routers import admin, archivos, telegram, usuarios
+from app.routers import admin, archivos, telegram, usuarios, auth, archivos, permisos, carpetas
 from app.excepciones import registrar_manejadores
 
 app = FastAPI(
@@ -57,7 +57,9 @@ app.include_router(usuarios.router)
 app.include_router(telegram.router)
 app.include_router(archivos.router)
 app.include_router(admin.router)
-
+app.include_router(auth.router)
+app.include_router(permisos.router)
+app.include_router(carpetas.router)
 
 @app.get("/salud")
 def salud():

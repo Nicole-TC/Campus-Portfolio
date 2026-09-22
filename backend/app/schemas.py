@@ -28,6 +28,10 @@ class PerfilOut(BaseModel):
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
 
+class CarpetaCrear(BaseModel):
+    nombre: str
+    carpeta_padre_id: int | None = None
+
 
 class ArchivoPapeleraOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -36,6 +40,40 @@ class ArchivoPapeleraOut(BaseModel):
     nombre_original: str
     en_papelera: bool
     fecha_eliminacion: Optional[datetime]
+
+
+class ArchivoResumenOut(BaseModel):
+    """Resumen de un archivo pensado para el bot: sin rutas ni datos internos."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre_original: str
+    tamano_bytes: int
+    fecha_subida: datetime
+
+
+class RegistroIn(BaseModel):
+    nombre: str
+    apellido: str
+    dni: str
+    email: str
+    password: str
+    rol: str
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+class PermisoCrear(BaseModel):
+    archivo_id: int
+    destinatario: str
+    token_type: str = "bearer"
 
 
 # ---------------------------------------------------------------
