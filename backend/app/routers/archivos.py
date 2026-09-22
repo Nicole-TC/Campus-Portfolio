@@ -5,7 +5,7 @@ from pathlib import Path
 from shutil import copyfileobj
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -160,4 +160,81 @@ async def subir_archivo(
         "nombre": nuevo_archivo.nombre_original,
         "tamano_bytes": nuevo_archivo.tamano_bytes,
         "mensaje": "Archivo subido correctamente",
+    }
+
+@router.get("")
+def listar_archivos(
+    carpeta_id: int | None = None,
+    pagina: int = Query(1, ge=1),
+    limite: int = Query(20, ge=1, le=100),
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Si se pidió una carpeta, revisar que pertenezca al usuario
+    if carpeta_id is not None:
+        carpeta = db.scalar(
+            select(Carpeta).where(
+                Carpeta.id == carpeta_id,
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.en_papelera.is_(False),
+            )
+        )
+
+        if carpeta is None:
+            raise HTTPException(
+                status_code=404,
+                detail="La carpeta no existe",
+            )
+
+    offset = (pagina - 1) * limite
+
+    # Carpetas de la ubicación actual
+    carpetas = db.scalars(
+        select(Carpeta)
+        .where(
+            Carpeta.usuario_id == usuario.id,
+            Carpeta.carpeta_padre_id == carpeta_id,
+            Carpeta.en_papelera.is_(False),
+        )
+        .order_by(Carpeta.nombre)
+        .offset(offset)
+        .limit(limite)
+    ).all()
+
+    # Archivos de la ubicación actual
+    archivos = db.scalars(
+        select(Archivo)
+        .where(
+            Archivo.usuario_id == usuario.id,
+            Archivo.carpeta_id == carpeta_id,
+            Archivo.en_papelera.is_(False),
+        )
+        .order_by(Archivo.id.desc())
+        .offset(offset)
+        .limit(limite)
+    ).all()
+
+    return {
+        "pagina": pagina,
+        "limite": limite,
+        "carpeta_id": carpeta_id,
+        "carpetas": [
+            {
+                "id": carpeta.id,
+                "nombre": carpeta.nombre,
+                "carpeta_padre_id": carpeta.carpeta_padre_id,
+                "fecha_creacion": carpeta.fecha_creacion,
+            }
+            for carpeta in carpetas
+        ],
+        "archivos": [
+            {
+                "id": archivo.id,
+                "nombre": archivo.nombre_original,
+                "tamano_bytes": archivo.tamano_bytes,
+                "carpeta_id": archivo.carpeta_id,
+                "fecha_subida": archivo.fecha_subida,
+            }
+            for archivo in archivos
+        ],
     }
