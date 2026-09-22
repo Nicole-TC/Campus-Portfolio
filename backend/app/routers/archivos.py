@@ -1,6 +1,35 @@
+"""Endpoints para gestión y subida de archivos."""
+
+from datetime import datetime
+from pathlib import Path
+from shutil import copyfileobj
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import Archivo, Carpeta, Extension, Usuario
+from app.services.perfil import (
+    BYTES_POR_MB,
+    bytes_usados,
+    cuota_y_limite_mb,
+    extensiones_permitidas,
+)
+
+
+router = APIRouter(
+    prefix="/archivos",
+    tags=["Archivos"],
+)
+
+
 @router.post("", status_code=201)
 async def subir_archivo(
     archivo: UploadFile = File(...),
+    carpeta_id: int | None = Form(None),
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -44,9 +73,10 @@ async def subir_archivo(
             detail="La extensión no está registrada en el sistema",
         )
 
-    # Leer el archivo y obtener el tamaño
-    contenido = await archivo.read()
-    tamano_bytes = len(contenido)
+    # Obtener el tamaño sin cargar todo el archivo en memoria
+    archivo.file.seek(0, 2)
+    tamano_bytes = archivo.file.tell()
+    archivo.file.seek(0)
 
     # Obtener cuota y tamaño máximo
     cuota_mb, max_archivo_mb = cuota_y_limite_mb(usuario)
@@ -70,28 +100,45 @@ async def subir_archivo(
             detail="No hay suficiente espacio disponible",
         )
 
-    # Carpeta donde se guardan los archivos del usuario
+    # Revisar la carpeta si se mandó una
+    if carpeta_id is not None:
+        carpeta = db.scalar(
+            select(Carpeta).where(
+                Carpeta.id == carpeta_id,
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.en_papelera.is_(False),
+            )
+        )
+
+        if carpeta is None:
+            raise HTTPException(
+                status_code=404,
+                detail="La carpeta no existe",
+            )
+
+    # Carpeta física del usuario
     carpeta_usuario = Path("/storage/users") / str(usuario.id)
     carpeta_usuario.mkdir(parents=True, exist_ok=True)
 
     # Nombre seguro para guardar en disco
     nombre_disco = uuid4().hex
-
     ruta_archivo = carpeta_usuario / nombre_disco
 
-    # Guardar archivo en disco
-    ruta_archivo.write_bytes(contenido)
+    # Guardar archivo
+    with ruta_archivo.open("wb") as destino:
+        copyfileobj(archivo.file, destino)
 
-    # Guardar datos del archivo en la BD
+    # Guardar datos en la BD
     nuevo_archivo = Archivo(
         usuario_id=usuario.id,
-        carpeta_id=None,
+        carpeta_id=carpeta_id,
         id_extension=extension.id,
         nombre_disco=nombre_disco,
         nombre_original=archivo.filename,
         ruta=str(ruta_archivo),
         tamano_bytes=tamano_bytes,
         en_papelera=False,
+        fecha_subida=datetime.now(),
     )
 
     db.add(nuevo_archivo)
@@ -99,6 +146,7 @@ async def subir_archivo(
     try:
         db.commit()
         db.refresh(nuevo_archivo)
+
     except Exception:
         db.rollback()
 

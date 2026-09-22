@@ -71,16 +71,41 @@ class UsuarioExtensionProhibida(Base):
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     extension_id: Mapped[int] = mapped_column(ForeignKey("extensiones.id"))
 
+class Carpeta(Base):
+    __tablename__ = "carpetas"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+    carpeta_padre_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("carpetas.id")
+    )
+    nombre: Mapped[str] = mapped_column(String(255))
+    en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
+    fecha_creacion: Mapped[Optional[datetime]]
 
 class Archivo(Base):
     __tablename__ = "archivos"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
-    carpeta_id: Mapped[Optional[int]] = mapped_column(Integer)
+    carpeta_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("carpetas.id")
+    )
     id_extension: Mapped[int] = mapped_column(ForeignKey("extensiones.id"))
-    nombre_disco: Mapped[str] = mapped_column(String(255))
+
+    nombre_disco: Mapped[str] = mapped_column(
+        "nombre",
+        String(255),
+    )
+
     nombre_original: Mapped[str] = mapped_column(String(255))
     ruta: Mapped[str] = mapped_column(String(500))
-    tamano_bytes: Mapped[int] = mapped_column(BigInteger)
+
+    tamano_bytes: Mapped[int] = mapped_column(
+        "tamanio",
+        BigInteger,
+    )
+
     en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
+    fecha_eliminacion: Mapped[Optional[datetime]]
+    fecha_subida: Mapped[Optional[datetime]]
