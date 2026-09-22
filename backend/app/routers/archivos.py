@@ -298,14 +298,20 @@ def listar_compartidos(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    archivos = db.scalars(
-        select(Archivo)
-        .join(
-            Permiso,
-            Permiso.archivo_id == Archivo.id,
+    """Lista todos los archivos que otros usuarios compartieron con el usuario logueado."""
+    resultados = db.execute(
+        select(
+            Archivo,
+            Permiso.fecha_compartido,
+            Usuario.nombre.label("propietario_nombre"),
+            Usuario.apellido.label("propietario_apellido"),
+            Usuario.email.label("propietario_email"),
         )
+        .join(Permiso, Permiso.archivo_id == Archivo.id)
+        .join(Usuario, Usuario.id == Archivo.usuario_id)
         .where(
             Permiso.usuario_id == usuario.id,
+            Archivo.en_papelera.is_(False),  # 1. Filtra los archivos que el dueño mandó a la papelera
         )
         .order_by(Permiso.fecha_compartido.desc())
     ).all()
@@ -313,12 +319,15 @@ def listar_compartidos(
     return {
         "archivos": [
             {
-                "id": archivo.id,
-                "nombre": archivo.nombre_original,
-                "tamano_bytes": archivo.tamano_bytes,
-                "fecha_subida": archivo.fecha_subida,
-                "propietario_id": archivo.usuario_id,
+                "id": fila.Archivo.id,
+                "nombre": fila.Archivo.nombre_original,
+                "tamano_bytes": fila.Archivo.tamano_bytes,
+                "fecha_subida": fila.Archivo.fecha_subida,
+                "fecha_compartido": fila.fecha_compartido,  # 2. Fecha en que te lo compartieron
+                "propietario_id": fila.Archivo.usuario_id,
+                "propietario_nombre": f"{fila.propietario_nombre} {fila.propietario_apellido}",  # 3. Nombre completo del dueño
+                "propietario_email": fila.propietario_email,  # 4. Email del dueño
             }
-            for archivo in archivos
+            for fila in resultados
         ]
     }
