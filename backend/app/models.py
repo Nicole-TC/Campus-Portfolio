@@ -87,7 +87,7 @@ class UsuarioExtensionProhibida(Base):
 class Carpeta(Base):
     __tablename__ = "carpetas"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
 
     carpeta_padre_id: Mapped[Optional[int]] = mapped_column(
@@ -102,7 +102,7 @@ class Carpeta(Base):
 class Archivo(Base):
     __tablename__ = "archivos"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
 
     usuario_id: Mapped[int] = mapped_column(
         ForeignKey("usuarios.id")
@@ -116,18 +116,12 @@ class Archivo(Base):
         ForeignKey("extensiones.id")
     )
 
-    nombre_disco: Mapped[str] = mapped_column(
-        "nombre",
-        String(255),
-    )
+    nombre_disco: Mapped[str] = mapped_column(String(255))
 
     nombre_original: Mapped[str] = mapped_column(String(255))
     ruta: Mapped[str] = mapped_column(String(500))
 
-    tamano_bytes: Mapped[int] = mapped_column(
-        "tamanio",
-        BigInteger,
-    )
+    tamano_bytes: Mapped[int] = mapped_column(BigInteger)
 
     en_papelera: Mapped[bool] = mapped_column(
         Boolean,
