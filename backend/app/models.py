@@ -1,13 +1,22 @@
 """
 Modelos de base de datos (SQLAlchemy 2.0).
 
-Reflejan las tablas definidas en bd-campuscloud.sql. Por ahora solo se
-mapean las tablas que necesita el módulo Mi Perfil.
+Reflejan las tablas definidas en bd-campuscloud.sql.
+Por ahora solo se mapean las tablas que necesita el módulo Mi Perfil.
 """
+
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    SmallInteger,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -46,10 +55,13 @@ class Usuario(Base):
     email: Mapped[str] = mapped_column(String(150), unique=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     telegram_id: Mapped[Optional[int]] = mapped_column(BigInteger, unique=True)
+
     id_rol: Mapped[int] = mapped_column(ForeignKey("roles.id"))
     id_estado: Mapped[int] = mapped_column(ForeignKey("estados.id"))
+
     cuota_personalizada_mb: Mapped[Optional[int]] = mapped_column(Integer)
     max_file_personalizado_mb: Mapped[Optional[int]] = mapped_column(Integer)
+
     fecha_registro: Mapped[datetime]
 
     rol: Mapped[Rol] = relationship()
@@ -71,27 +83,38 @@ class UsuarioExtensionProhibida(Base):
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
     extension_id: Mapped[int] = mapped_column(ForeignKey("extensiones.id"))
 
+
 class Carpeta(Base):
     __tablename__ = "carpetas"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+
     carpeta_padre_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("carpetas.id")
     )
+
     nombre: Mapped[str] = mapped_column(String(255))
     en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
     fecha_creacion: Mapped[Optional[datetime]]
+
 
 class Archivo(Base):
     __tablename__ = "archivos"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"))
+
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios.id")
+    )
+
     carpeta_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("carpetas.id")
     )
-    id_extension: Mapped[int] = mapped_column(ForeignKey("extensiones.id"))
+
+    id_extension: Mapped[int] = mapped_column(
+        ForeignKey("extensiones.id")
+    )
 
     nombre_disco: Mapped[str] = mapped_column(
         "nombre",
@@ -106,10 +129,15 @@ class Archivo(Base):
         BigInteger,
     )
 
-    en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
+    en_papelera: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+
     fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True)
     )
-    fecha_subida: Mapped[Optional[datetime]] = mapped_column(
+
+    fecha_subida: Mapped[datetime] = mapped_column(
         DateTime(timezone=True)
     )
