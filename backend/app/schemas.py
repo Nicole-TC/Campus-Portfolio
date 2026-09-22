@@ -36,3 +36,21 @@ class ArchivoPapeleraOut(BaseModel):
     nombre_original: str
     en_papelera: bool
     fecha_eliminacion: Optional[datetime]
+
+class RegistroIn(BaseModel):
+    nombre: str
+    apellido: str
+    dni: str
+    email: str
+    password: str
+    rol: str
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
