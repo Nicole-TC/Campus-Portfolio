@@ -26,3 +26,7 @@ class PerfilOut(BaseModel):
     estado: str
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
+
+class CarpetaCrear(BaseModel):
+    nombre: str
+    carpeta_padre_id: int | None = None
