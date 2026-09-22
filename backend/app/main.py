@@ -46,6 +46,7 @@ from app.routers import usuarios, auth
 from app.excepciones import registrar_manejadores
 from app.routers import telegram
 from app.routers import archivos
+from app.routers import permisos
 from app.routers import carpetas
 
 app = FastAPI(
@@ -59,6 +60,8 @@ registrar_manejadores(app)
 app.include_router(usuarios.router)
 app.include_router(telegram.router)
 app.include_router(auth.router)
+app.include_router(permisos.router)
+
 app.include_router(archivos.router)
 app.include_router(carpetas.router)
 

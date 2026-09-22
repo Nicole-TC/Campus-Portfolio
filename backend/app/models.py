@@ -122,16 +122,24 @@ class Archivo(Base):
     ruta: Mapped[str] = mapped_column(String(500))
 
     tamano_bytes: Mapped[int] = mapped_column(BigInteger)
+    en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
+    fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    fecha_subida: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
-    en_papelera: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
+class Permiso(Base):
+    __tablename__ = "permisos"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+    archivo_id: Mapped[int] = mapped_column(
+        ForeignKey("archivos.id")
     )
 
-    fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios.id")
     )
 
-    fecha_subida: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True)
-    )
+    permiso: Mapped[Optional[str]] = mapped_column(String(20))
+
+    fecha_compartido: Mapped[Optional[datetime]]
+
