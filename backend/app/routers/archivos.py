@@ -57,7 +57,7 @@ async def subir_archivo(
         )
 
     # Sacar la extensión del archivo
-    extension_nombre = Path(archivo.filename).suffix.lower().lstrip(".")
+    extension_nombre = Path(archivo.filename).suffix.lower()
 
     if not extension_nombre:
         raise HTTPException(
@@ -67,7 +67,7 @@ async def subir_archivo(
 
     # Revisar si la extensión está permitida
     permitidas = {
-        extension.lower().lstrip(".")
+        extension.lower()
         for extension in extensiones_permitidas(usuario, db)
     }
 
