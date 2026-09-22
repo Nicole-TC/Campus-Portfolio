@@ -77,3 +77,51 @@ class UsuarioResueltoOut(UsuarioPendienteOut):
     """Usuario ya aprobado/rechazado, con su rol y estado finales."""
     rol: str
     estado: str
+
+# ---------------------------------------------------------------
+# G-14: Gestión de cuotas, roles y extensiones (admin)
+# ---------------------------------------------------------------
+
+class CuotaUsuarioIn(BaseModel):
+    """Body para setear/limpiar overrides de cuota por usuario.
+
+    Mandar `null` en un campo lo devuelve al valor que hereda del rol.
+    """
+    cuota_personalizada_mb: Optional[int] = None
+    max_file_personalizado_mb: Optional[int] = None
+
+
+class CambioRolIn(BaseModel):
+    """Body para cambiar el rol de un usuario."""
+    id_rol: int
+
+
+class UsuarioCuotaOut(BaseModel):
+    """Vista de un usuario con sus cuotas efectivas y uso actual."""
+    id: int
+    nombre: str
+    apellido: str
+    email: str
+    rol: str
+    estado: str
+    cuota_personalizada_mb: Optional[int]
+    max_file_personalizado_mb: Optional[int]
+    cuota_efectiva_mb: int
+    max_file_efectivo_mb: int
+    uso_bytes: int
+
+
+class ExtensionesProhibidasIn(BaseModel):
+    """Body para reemplazar el set completo de extensiones prohibidas/bloqueadas.
+
+    Si la lista viene vacía, se borran todas las prohibiciones.
+    """
+    ids_extensiones: List[int]
+
+
+class ExtensionItemOut(BaseModel):
+    """Extensión con su id y nombre para listados."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str

@@ -1,8 +1,23 @@
-from sqlalchemy import select
+"""Lógica de negocio del módulo de administración.
+
+G-9: aprobación de usuarios (listar pendientes, aprobar, rechazar) + catálogos.
+G-14: gestión de cuotas, cambio de rol y extensiones prohibidas/bloqueadas.
+"""
+from typing import Optional
+
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.excepciones import ErrorNoEncontrado, ErrorValidacion
-from app.models import Estado, Rol, Usuario
+from app.models import (
+    Estado,
+    Extension,
+    Rol,
+    RolExtensionBloqueada,
+    Usuario,
+    UsuarioExtensionProhibida,
+)
+from app.services.perfil import BYTES_POR_MB, bytes_usados, cuota_y_limite_mb
 
 ESTADO_PENDIENTE = "PENDIENTE"
 ESTADO_ACTIVO = "ACTIVO"
@@ -21,6 +36,11 @@ def listar_roles(db: Session) -> list[Rol]:
 def listar_estados(db: Session) -> list[Estado]:
     """Todos los estados de usuario, ordenados por id."""
     return list(db.scalars(select(Estado).order_by(Estado.id)))
+
+
+def listar_extensiones(db: Session) -> list[Extension]:
+    """Catálogo completo de extensiones soportadas."""
+    return list(db.scalars(select(Extension).order_by(Extension.nombre)))
 
 
 # ---------------------------------------------------------------
@@ -57,6 +77,28 @@ def _a_resuelto_out(usuario: Usuario) -> dict:
         "estado": usuario.estado.nombre,
     }
 
+
+def _a_cuota_out(usuario: Usuario, db: Session) -> dict:
+    """Serializa un Usuario al formato UsuarioCuotaOut (G-14)."""
+    cuota_mb, max_mb = cuota_y_limite_mb(usuario)
+    return {
+        "id": usuario.id,
+        "nombre": usuario.nombre,
+        "apellido": usuario.apellido,
+        "email": usuario.email,
+        "rol": usuario.rol.nombre,
+        "estado": usuario.estado.nombre,
+        "cuota_personalizada_mb": usuario.cuota_personalizada_mb,
+        "max_file_personalizado_mb": usuario.max_file_personalizado_mb,
+        "cuota_efectiva_mb": cuota_mb,
+        "max_file_efectivo_mb": max_mb,
+        "uso_bytes": bytes_usados(usuario.id, db),
+    }
+
+
+# ===============================================================
+# G-9: Aprobación de usuarios
+# ===============================================================
 
 # ---------------------------------------------------------------
 # Pendientes
@@ -145,3 +187,215 @@ def rechazar_usuario(usuario_id: int, db: Session) -> dict:
     db.commit()
     db.refresh(usuario)
     return _a_resuelto_out(usuario)
+
+
+# ===============================================================
+# G-14: Gestión de cuotas, roles y extensiones
+# ===============================================================
+
+# ---------------------------------------------------------------
+# Cuota individual por usuario
+# ---------------------------------------------------------------
+
+def actualizar_cuota_usuario(
+    usuario_id: int,
+    cuota_mb: Optional[int],
+    max_mb: Optional[int],
+    db: Session,
+) -> dict:
+    """Setea (o limpia) los overrides de cuota y max archivo de un usuario.
+
+    Reglas:
+    - Si un campo es None, se borra el override (hereda del rol).
+    - La cuota mínima es 1 MB. El max archivo debe ser ≥ 1 MB.
+    - Si max_mb > cuota_mb (cuando ambos vienen seteados), se rechaza.
+    - Si la cuota nueva es menor que el uso actual, se rechaza.
+    """
+    usuario = db.get(
+        Usuario,
+        usuario_id,
+        options=[joinedload(Usuario.rol), joinedload(Usuario.estado)],
+    )
+    if usuario is None:
+        raise ErrorNoEncontrado("Usuario no encontrado")
+
+    if cuota_mb is not None and cuota_mb < 1:
+        raise ErrorValidacion("La cuota mínima es 1 MB")
+    if max_mb is not None and max_mb < 1:
+        raise ErrorValidacion("El tamaño máximo por archivo debe ser ≥ 1 MB")
+
+    # Si estamos bajando la cuota, verificar que entre lo ya usado.
+    if cuota_mb is not None:
+        uso_bytes = bytes_usados(usuario_id, db)
+        if uso_bytes > cuota_mb * BYTES_POR_MB:
+            raise ErrorValidacion(
+                f"El usuario ya usa {uso_bytes // BYTES_POR_MB} MB, "
+                f"más que la cuota que querés asignar ({cuota_mb} MB)."
+            )
+
+    # Si vamos a fijar ambos, validar la relación cuota/max.
+    if cuota_mb is not None and max_mb is not None and max_mb > cuota_mb:
+        raise ErrorValidacion(
+            "El tamaño máximo por archivo no puede superar la cuota total"
+        )
+
+    usuario.cuota_personalizada_mb = cuota_mb
+    usuario.max_file_personalizado_mb = max_mb
+    db.commit()
+    db.refresh(usuario)
+    return _a_cuota_out(usuario, db)
+
+
+# ---------------------------------------------------------------
+# Cambio de rol (con validación de cuota)
+# ---------------------------------------------------------------
+
+def cambiar_rol_usuario(usuario_id: int, id_rol: int, db: Session) -> dict:
+    """Cambia el rol de un usuario validando que la nueva cuota alcance.
+
+    Regla: la cuota efectiva del nuevo rol no puede ser menor que el uso
+    actual del usuario (evita que quede "sobreocupado").
+    """
+    usuario = db.get(
+        Usuario,
+        usuario_id,
+        options=[joinedload(Usuario.rol), joinedload(Usuario.estado)],
+    )
+    if usuario is None:
+        raise ErrorNoEncontrado("Usuario no encontrado")
+
+    rol_nuevo = db.get(Rol, id_rol)
+    if rol_nuevo is None:
+        raise ErrorValidacion("Rol inválido")
+
+    # Cuota efectiva si se aplica el nuevo rol: el override del usuario pisa al rol.
+    cuota_nueva_mb = usuario.cuota_personalizada_mb or rol_nuevo.cuota_total_mb
+    uso_bytes = bytes_usados(usuario_id, db)
+    if uso_bytes > cuota_nueva_mb * BYTES_POR_MB:
+        raise ErrorValidacion(
+            f"El rol {rol_nuevo.nombre} tiene {cuota_nueva_mb} MB de cuota, "
+            f"y el usuario ya usa {uso_bytes // BYTES_POR_MB} MB. "
+            f"Liberá espacio o cargá una excepción de cuota antes de cambiar el rol."
+        )
+
+    usuario.id_rol = id_rol
+    db.commit()
+    db.refresh(usuario)
+    return _a_cuota_out(usuario, db)
+
+
+# ---------------------------------------------------------------
+# Extensiones prohibidas por usuario
+# ---------------------------------------------------------------
+
+def listar_extensiones_prohibidas_usuario(usuario_id: int, db: Session) -> list[Extension]:
+    """Extensiones prohibidas explícitamente para un usuario."""
+    usuario = db.get(Usuario, usuario_id)
+    if usuario is None:
+        raise ErrorNoEncontrado("Usuario no encontrado")
+    return list(
+        db.scalars(
+            select(Extension)
+            .join(
+                UsuarioExtensionProhibida,
+                UsuarioExtensionProhibida.extension_id == Extension.id,
+            )
+            .where(UsuarioExtensionProhibida.usuario_id == usuario_id)
+            .order_by(Extension.nombre)
+        )
+    )
+
+
+def reemplazar_extensiones_prohibidas_usuario(
+    usuario_id: int,
+    ids_extensiones: list[int],
+    db: Session,
+) -> list[Extension]:
+    """Reemplaza el set completo de prohibiciones de un usuario.
+
+    Borra las existentes e inserta el set nuevo en una transacción.
+    """
+    usuario = db.get(Usuario, usuario_id)
+    if usuario is None:
+        raise ErrorNoEncontrado("Usuario no encontrado")
+
+    ids_unicos = list(set(ids_extensiones))
+
+    # Validar que existan todas las extensiones.
+    if ids_unicos:
+        existentes = set(
+            db.scalars(select(Extension.id).where(Extension.id.in_(ids_unicos)))
+        )
+        faltantes = set(ids_unicos) - existentes
+        if faltantes:
+            raise ErrorValidacion(f"IDs de extensión inválidos: {sorted(faltantes)}")
+
+    # Borrar prohibiciones viejas.
+    db.execute(
+        delete(UsuarioExtensionProhibida).where(
+            UsuarioExtensionProhibida.usuario_id == usuario_id
+        )
+    )
+
+    # Insertar nuevas.
+    for ext_id in ids_unicos:
+        db.add(UsuarioExtensionProhibida(usuario_id=usuario_id, extension_id=ext_id))
+
+    db.commit()
+    return listar_extensiones_prohibidas_usuario(usuario_id, db)
+
+
+# ---------------------------------------------------------------
+# Extensiones bloqueadas por rol
+# ---------------------------------------------------------------
+
+def listar_extensiones_bloqueadas_rol(id_rol: int, db: Session) -> list[Extension]:
+    """Extensiones bloqueadas para un rol."""
+    rol = db.get(Rol, id_rol)
+    if rol is None:
+        raise ErrorNoEncontrado("Rol no encontrado")
+    return list(
+        db.scalars(
+            select(Extension)
+            .join(
+                RolExtensionBloqueada,
+                RolExtensionBloqueada.extension_id == Extension.id,
+            )
+            .where(RolExtensionBloqueada.rol_id == id_rol)
+            .order_by(Extension.nombre)
+        )
+    )
+
+
+def reemplazar_extensiones_bloqueadas_rol(
+    id_rol: int,
+    ids_extensiones: list[int],
+    db: Session,
+) -> list[Extension]:
+    """Reemplaza el set completo de bloqueos de un rol.
+
+    Mismo patrón que la de usuario: borrar y reinsertar.
+    """
+    rol = db.get(Rol, id_rol)
+    if rol is None:
+        raise ErrorNoEncontrado("Rol no encontrado")
+
+    ids_unicos = list(set(ids_extensiones))
+
+    if ids_unicos:
+        existentes = set(
+            db.scalars(select(Extension.id).where(Extension.id.in_(ids_unicos)))
+        )
+        faltantes = set(ids_unicos) - existentes
+        if faltantes:
+            raise ErrorValidacion(f"IDs de extensión inválidos: {sorted(faltantes)}")
+
+    db.execute(
+        delete(RolExtensionBloqueada).where(RolExtensionBloqueada.rol_id == id_rol)
+    )
+
+    for ext_id in ids_unicos:
+        db.add(RolExtensionBloqueada(rol_id=id_rol, extension_id=ext_id))
+
+    db.commit()
+    return listar_extensiones_bloqueadas_rol(id_rol, db)
