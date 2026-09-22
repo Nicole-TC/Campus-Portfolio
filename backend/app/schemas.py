@@ -28,6 +28,10 @@ class PerfilOut(BaseModel):
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
 
+class CarpetaCrear(BaseModel):
+    nombre: str
+    carpeta_padre_id: int | None = None
+
 
 class ArchivoPapeleraOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
