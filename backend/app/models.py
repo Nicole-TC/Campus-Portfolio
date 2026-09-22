@@ -7,7 +7,7 @@ mapean las tablas que necesita el módulo Mi Perfil.
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, SmallInteger, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, SmallInteger, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -107,5 +107,9 @@ class Archivo(Base):
     )
 
     en_papelera: Mapped[bool] = mapped_column(Boolean, default=False)
-    fecha_eliminacion: Mapped[Optional[datetime]]
-    fecha_subida: Mapped[Optional[datetime]]
+    fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    fecha_subida: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )

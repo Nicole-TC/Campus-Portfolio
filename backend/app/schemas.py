@@ -1,7 +1,8 @@
 """Esquemas Pydantic de entrada/salida de la API."""
-from typing import List
+from datetime import datetime
+from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class AlmacenamientoOut(BaseModel):
@@ -30,3 +31,31 @@ class PerfilOut(BaseModel):
 class CarpetaCrear(BaseModel):
     nombre: str
     carpeta_padre_id: int | None = None
+
+
+class ArchivoPapeleraOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre_original: str
+    en_papelera: bool
+    fecha_eliminacion: Optional[datetime]
+
+
+class RegistroIn(BaseModel):
+    nombre: str
+    apellido: str
+    dni: str
+    email: str
+    password: str
+    rol: str
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
