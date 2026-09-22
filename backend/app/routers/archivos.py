@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Usuario
+from app.models import Archivo, Permiso, Usuario
 from app.schemas import ArchivoPapeleraOut
 from app.services.papelera import (
     eliminar_definitivamente,
@@ -12,7 +13,42 @@ from app.services.papelera import (
     restaurar_de_papelera,
 )
 
-router = APIRouter(prefix="/archivos", tags=["Archivos"])
+
+router = APIRouter(
+    prefix="/archivos",
+    tags=["Archivos"],
+)
+
+
+@router.get("/compartidos")
+def listar_compartidos(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    archivos = db.scalars(
+        select(Archivo)
+        .join(
+            Permiso,
+            Permiso.archivo_id == Archivo.id,
+        )
+        .where(
+            Permiso.usuario_id == usuario.id,
+        )
+        .order_by(Permiso.fecha_compartido.desc())
+    ).all()
+
+    return {
+        "archivos": [
+            {
+                "id": archivo.id,
+                "nombre": archivo.nombre_original,
+                "tamano_bytes": archivo.tamano_bytes,
+                "fecha_subida": archivo.fecha_subida,
+                "propietario_id": archivo.usuario_id,
+            }
+            for archivo in archivos
+        ]
+    }
 
 
 @router.patch("/{archivo_id}/papelera", response_model=ArchivoPapeleraOut)
@@ -43,7 +79,8 @@ def eliminar_definitivo(
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Borrado definitivo (irreversible): elimina el archivo del disco y de PostgreSQL."""
+    """Borrado definitivo: elimina el archivo del disco y de PostgreSQL."""
     archivo = obtener_archivo_propio(archivo_id, usuario, db)
     eliminar_definitivamente(archivo, db)
+
     return Response(status_code=status.HTTP_204_NO_CONTENT)
