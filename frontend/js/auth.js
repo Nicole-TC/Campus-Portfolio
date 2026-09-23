@@ -325,7 +325,7 @@ const Auth = (() => {
     localStorage.removeItem(KEY_POLITICAS);
   }
 
-   
+
   function politicaEfectiva(usuario) {
     const pol = obtenerPoliticas();
     const capas = [
@@ -519,7 +519,7 @@ const Auth = (() => {
     ROLES, ROLES_SOLICITABLES, ESTADOS, MOTIVOS_RECHAZO, CAPACIDADES, CAPACIDAD_SERVIDOR_MB, CUENTAS_DEMO,
     generarId, irA, puede,
     validarEmail, validarDNI, validarIdentificador, limpiarDNI, formatearDNI,
-    registrarUsuario, iniciarSesion, cerrarSesion, obtenerSesion, requerirSesion, sesionActiva,
+    registrarUsuario, iniciarSesion, guardarSesion, cerrarSesion, obtenerSesion, requerirSesion, sesionActiva,
     listarUsuarios, obtenerUsuario, usuarioPorEmail, usuarioPorIdentificador, obtenerPendientes,
     cambiarEstadoUsuario, cambiarRol, guardarExcepciones,
     obtenerPoliticas, guardarPoliticaGlobal, guardarPoliticaRol, restaurarPoliticas, politicaEfectiva,
