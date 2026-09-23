@@ -71,18 +71,42 @@ const Api = (() => {
     // Autenticación (públicas)
     // ---------------------------------------------------------------
 
-    /** POST /auth/login  { email, password } → { token, usuario } */
+    /**
+     * POST /auth/login → guarda el JWT y trae los datos del usuario con GET /usuarios/me.
+     * Devuelve { ok, usuario } al igual que el flujo simulado, para que login.html no cambie.
+     */
     const login = (email, password, recordar = false) => enCarga(async () => {
-        await esperar();
-        const r = Auth.iniciarSesion(email, password, recordar);
-        return r.ok ? { status: 200, ...r } : { status: 401, ...r };
+        const r = await Http.post('auth/login', { email, password }, { publico: true });
+        if (!r.ok) return r;
+
+        const perfil = await Http.get('usuarios/me', { headers: { Authorization: `Bearer ${r.access_token}` } });
+        if (!perfil.ok) return { ok: false, status: perfil.status, motivo: perfil.motivo };
+
+        // El backend usa roles en mayúsculas (ALUMNO); el resto del frontend los espera en minúsculas.
+        const usuario = {
+            id: perfil.id,
+            nombre: `${perfil.nombre} ${perfil.apellido}`.trim(),
+            email: perfil.email,
+            rol: String(perfil.rol || '').toLowerCase(),
+        };
+        Auth.guardarSesion(usuario, recordar, r.access_token);
+        return { ok: true, status: 200, usuario, token: r.access_token };
     });
 
-    /** POST /auth/register  { nombre, email, dni, password, rolSolicitado } */
+    /**
+     * POST /auth/registro → el backend deja al usuario en estado PENDIENTE hasta la aprobación.
+     * El frontend envía "rolSolicitado" en minúsculas; el backend espera "rol" en mayúsculas.
+     */
     const registrar = (datos) => enCarga(async () => {
-        await esperar();
-        const r = Auth.registrarUsuario(datos);
-        return r.ok ? { status: 201, ...r } : { status: 409, ...r };
+        const cuerpo = {
+            nombre: datos.nombre,
+            apellido: datos.apellido,
+            dni: datos.dni,
+            email: datos.email,
+            password: datos.password,
+            rol: String(datos.rolSolicitado || '').toUpperCase(),
+        };
+        return Http.post('auth/registro', cuerpo, { publico: true });
     });
 
     /**

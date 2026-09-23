@@ -25,7 +25,7 @@ const Http = (() => {
   'use strict';
 
   const CONFIG = {
-    baseUrl: '',          // ej: 'https://tu-api.com' ('' = mismo origen que la página)
+    baseUrl: '/api',      // Nginx proxifica /api/* al backend FastAPI
     timeoutMs: 15000,     // corta pedidos que no responden
     paginaLogin: 'login.html?e=expirada',
   };
@@ -125,7 +125,8 @@ const Http = (() => {
       if (datos && typeof datos === 'object' && !Array.isArray(datos)) return { ok: true, status, ...datos };
       return { ok: true, status, datos };
     }
-    const motivo = datos && (datos.motivo || datos.message || datos.error);
+    // El backend responde { error, codigo, mensaje }; también se aceptan las claves clásicas.
+    const motivo = datos && (datos.motivo || datos.mensaje || datos.message);
     const campo = datos && datos.campo ? { campo: datos.campo } : {};
     return { ok: false, status, motivo: typeof motivo === 'string' && motivo ? motivo : mensajeDeStatus(status), ...campo };
   }
