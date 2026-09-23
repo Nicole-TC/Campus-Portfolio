@@ -167,13 +167,8 @@
     const resultado = await Api.login(email, password, recordar); // latencia simulada dentro de Api
 
     if (!resultado.ok) {
-      let mensaje = 'No pudimos iniciar sesión.';
-      if (resultado.motivo === 'credenciales') mensaje = 'Correo o contraseña incorrectos.';
-      if (resultado.motivo === 'pendiente') mensaje = 'Tu cuenta todavía no fue aprobada por un administrador. Probá más tarde.';
-      if (resultado.motivo === 'rechazado') {
-        mensaje = 'Tu cuenta fue rechazada.' + (resultado.detalle ? ` Motivo: ${resultado.detalle}` : '') + ' Si creés que es un error, contactá a un administrador.';
-      }
-      Auth.mostrarAlerta(alertBox, alertText, mensaje);
+      // El backend ya devuelve un mensaje listo para mostrar; si no, mensaje genérico.
+      Auth.mostrarAlerta(alertBox, alertText, resultado.motivo || 'No pudimos iniciar sesión.');
       bloquear(false, 'Iniciar sesión');
       return;
     }

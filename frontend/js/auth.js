@@ -427,12 +427,13 @@ const Auth = (() => {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  function guardarSesion(usuario, recordar = false) {
+  function guardarSesion(usuario, recordar = false, tokenReal = null) {
     cerrarSesion();
     const almacen = recordar ? localStorage : sessionStorage;
     const { id, nombre, email, rol } = usuario;
     almacen.setItem(KEY_SESION, JSON.stringify({ id, nombre, email, rol }));
-    almacen.setItem(KEY_TOKEN, generarTokenSimulado(usuario));
+    // Si viene del backend usamos su JWT; si no (flujo simulado), generamos uno de prueba.
+    almacen.setItem(KEY_TOKEN, tokenReal || generarTokenSimulado(usuario));
   }
 
   function obtenerSesion() {
@@ -453,12 +454,11 @@ const Auth = (() => {
     const token = obtenerToken();
     if (!ses || !token) return { ok: false, motivo: 'sinsesion' };
     if (!tokenValido(token)) return { ok: false, motivo: 'expirada' };
-    const payload = decodificarToken(token);
-    if (!payload || payload.sub !== ses.id) return { ok: false, motivo: 'invalida' };
-    const usuario = obtenerUsuario(ses.id);
-    if (!usuario) return { ok: false, motivo: 'invalida' };
-    if (usuario.estado !== 'aprobado') return { ok: false, motivo: usuario.estado };
-    // rolRequerido puede ser un rol ('admin') o una lista (['docente', 'admin']).
+    // Con el backend real la sesión ya trae los datos del usuario; el mock local
+    // (cuando existe) solo se usa como complemento de datos para admin.html.
+    const enMock = obtenerUsuario(ses.id);
+    const usuario = enMock || ses;
+    if (enMock && enMock.estado !== 'aprobado') return { ok: false, motivo: enMock.estado };
     if (rolRequerido) {
       const permitidos = Array.isArray(rolRequerido) ? rolRequerido : [rolRequerido];
       if (!permitidos.includes(usuario.rol)) return { ok: false, motivo: 'rol', usuario };
