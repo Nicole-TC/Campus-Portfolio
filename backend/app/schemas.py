@@ -78,6 +78,7 @@ class UsuarioResueltoOut(UsuarioPendienteOut):
     rol: str
     estado: str
 
+
 # ---------------------------------------------------------------
 # G-14: Gestión de cuotas, roles y extensiones (admin)
 # ---------------------------------------------------------------
@@ -125,3 +126,12 @@ class ExtensionItemOut(BaseModel):
 
     id: int
     nombre: str
+
+
+class RolUpdateIn(BaseModel):
+    """Body para actualizar cuota y/o max archivo de un rol.
+
+    Ambos campos son opcionales: podés mandar solo uno y el otro queda como está.
+    """
+    cuota_total_mb: Optional[int] = None
+    max_file_size_mb: Optional[int] = None

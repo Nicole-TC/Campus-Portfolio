@@ -19,6 +19,7 @@ from app.schemas import (
     ExtensionItemOut,
     ExtensionesProhibidasIn,
     RolAdminOut,
+    RolUpdateIn,
     UsuarioCuotaOut,
     UsuarioPendienteOut,
     UsuarioResueltoOut,
@@ -102,6 +103,31 @@ def rechazar(usuario_id: int, db: Session = Depends(get_db)):
 # ===============================================================
 # G-14: Gestión de cuotas, roles y extensiones
 # ===============================================================
+
+# ---------------------------------------------------------------
+# Cuota y max archivo por rol
+# ---------------------------------------------------------------
+
+@router.patch("/roles/{id_rol}", response_model=RolAdminOut)
+def actualizar_rol(
+    id_rol: int,
+    payload: RolUpdateIn,
+    db: Session = Depends(get_db),
+):
+    """Actualiza la cuota y/o el max archivo de un rol.
+
+    - Ambos campos del body son opcionales (podés mandar solo uno).
+    - Valida que max archivo ≤ cuota total.
+    - Si se baja la cuota, ningún usuario del rol (sin override) puede
+      quedar con uso mayor a la nueva cuota.
+    """
+    return admin_service.actualizar_rol(
+        id_rol,
+        payload.cuota_total_mb,
+        payload.max_file_size_mb,
+        db,
+    )
+
 
 # ---------------------------------------------------------------
 # Cuota individual por usuario

@@ -5,11 +5,12 @@ G-14: gestión de cuotas, cambio de rol y extensiones prohibidas/bloqueadas.
 """
 from typing import Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.excepciones import ErrorNoEncontrado, ErrorValidacion
 from app.models import (
+    Archivo,
     Estado,
     Extension,
     Rol,
@@ -224,7 +225,6 @@ def actualizar_cuota_usuario(
     if max_mb is not None and max_mb < 1:
         raise ErrorValidacion("El tamaño máximo por archivo debe ser ≥ 1 MB")
 
-    # Si estamos bajando la cuota, verificar que entre lo ya usado.
     if cuota_mb is not None:
         uso_bytes = bytes_usados(usuario_id, db)
         if uso_bytes > cuota_mb * BYTES_POR_MB:
@@ -233,7 +233,6 @@ def actualizar_cuota_usuario(
                 f"más que la cuota que querés asignar ({cuota_mb} MB)."
             )
 
-    # Si vamos a fijar ambos, validar la relación cuota/max.
     if cuota_mb is not None and max_mb is not None and max_mb > cuota_mb:
         raise ErrorValidacion(
             "El tamaño máximo por archivo no puede superar la cuota total"
@@ -268,7 +267,6 @@ def cambiar_rol_usuario(usuario_id: int, id_rol: int, db: Session) -> dict:
     if rol_nuevo is None:
         raise ErrorValidacion("Rol inválido")
 
-    # Cuota efectiva si se aplica el nuevo rol: el override del usuario pisa al rol.
     cuota_nueva_mb = usuario.cuota_personalizada_mb or rol_nuevo.cuota_total_mb
     uso_bytes = bytes_usados(usuario_id, db)
     if uso_bytes > cuota_nueva_mb * BYTES_POR_MB:
@@ -282,6 +280,93 @@ def cambiar_rol_usuario(usuario_id: int, id_rol: int, db: Session) -> dict:
     db.commit()
     db.refresh(usuario)
     return _a_cuota_out(usuario, db)
+
+
+# ---------------------------------------------------------------
+# Cuota y max archivo por rol
+# ---------------------------------------------------------------
+
+def actualizar_rol(
+    id_rol: int,
+    cuota_mb: Optional[int],
+    max_mb: Optional[int],
+    db: Session,
+) -> Rol:
+    """Actualiza cuota y/o max archivo de un rol.
+
+    Reglas:
+    - Cuota ≥ 1 MB, max archivo ≥ 1 MB.
+    - Max archivo ≤ cuota total (después de aplicar el cambio).
+    - Si se baja la cuota, ningún usuario del rol (sin override) puede
+      quedar con uso > nueva cuota.
+    """
+    rol = db.get(Rol, id_rol)
+    if rol is None:
+        raise ErrorNoEncontrado("Rol no encontrado")
+
+    if cuota_mb is not None and cuota_mb < 1:
+        raise ErrorValidacion("La cuota mínima es 1 MB")
+    if max_mb is not None and max_mb < 1:
+        raise ErrorValidacion("El tamaño máximo por archivo debe ser ≥ 1 MB")
+
+    nueva_cuota = cuota_mb if cuota_mb is not None else rol.cuota_total_mb
+    nuevo_max = max_mb if max_mb is not None else rol.max_file_size_mb
+
+    if nuevo_max > nueva_cuota:
+        raise ErrorValidacion(
+            "El tamaño máximo por archivo no puede superar la cuota total"
+        )
+
+    if cuota_mb is not None and cuota_mb < rol.cuota_total_mb:
+        afectados = _usuarios_sobreocupados_por_cambio(id_rol, cuota_mb, db)
+        if afectados:
+            muestra = afectados[:10]
+            extra = f" (+{len(afectados) - 10} más)" if len(afectados) > 10 else ""
+            raise ErrorValidacion(
+                f"No se puede reducir la cuota a {cuota_mb} MB: hay "
+                f"{len(afectados)} usuario(s) del rol que ya usan más espacio. "
+                f"IDs: {muestra}{extra}"
+            )
+
+    if cuota_mb is not None:
+        rol.cuota_total_mb = cuota_mb
+    if max_mb is not None:
+        rol.max_file_size_mb = max_mb
+
+    db.commit()
+    db.refresh(rol)
+    return rol
+
+
+def _usuarios_sobreocupados_por_cambio(
+    id_rol: int,
+    nueva_cuota_mb: int,
+    db: Session,
+) -> list[int]:
+    """Usuarios del rol (sin override personalizado) que quedarían sobreocupados.
+
+    Los que tienen `cuota_personalizada_mb` seteado no se ven afectados
+    por el cambio del rol: su cuota es el override.
+    """
+    usuarios = db.scalars(
+        select(Usuario).where(
+            Usuario.id_rol == id_rol,
+            Usuario.cuota_personalizada_mb.is_(None),
+        )
+    ).all()
+    if not usuarios:
+        return []
+
+    ids = [u.id for u in usuarios]
+    filas = db.execute(
+        select(Archivo.usuario_id, func.coalesce(func.sum(Archivo.tamano_bytes), 0))
+        .where(Archivo.usuario_id.in_(ids))
+        .group_by(Archivo.usuario_id)
+    ).all()
+    uso_por_usuario = {uid: int(total) for uid, total in filas}
+
+    limite_bytes = nueva_cuota_mb * BYTES_POR_MB
+    return [u.id for u in usuarios if uso_por_usuario.get(u.id, 0) > limite_bytes]
 
 
 # ---------------------------------------------------------------
@@ -321,7 +406,6 @@ def reemplazar_extensiones_prohibidas_usuario(
 
     ids_unicos = list(set(ids_extensiones))
 
-    # Validar que existan todas las extensiones.
     if ids_unicos:
         existentes = set(
             db.scalars(select(Extension.id).where(Extension.id.in_(ids_unicos)))
@@ -330,14 +414,12 @@ def reemplazar_extensiones_prohibidas_usuario(
         if faltantes:
             raise ErrorValidacion(f"IDs de extensión inválidos: {sorted(faltantes)}")
 
-    # Borrar prohibiciones viejas.
     db.execute(
         delete(UsuarioExtensionProhibida).where(
             UsuarioExtensionProhibida.usuario_id == usuario_id
         )
     )
 
-    # Insertar nuevas.
     for ext_id in ids_unicos:
         db.add(UsuarioExtensionProhibida(usuario_id=usuario_id, extension_id=ext_id))
 
