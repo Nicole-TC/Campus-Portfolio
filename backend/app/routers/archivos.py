@@ -3,6 +3,7 @@
 from datetime import datetime
 from pathlib import Path
 from shutil import copyfileobj
+from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import (
@@ -16,11 +17,12 @@ from fastapi import (
     UploadFile,
     status,
 )
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, get_current_user_flexible
 from app.models import Archivo, Carpeta, Extension, Permiso, Usuario
 from app.schemas import ArchivoPapeleraOut
 from app.services.papelera import (
@@ -35,6 +37,7 @@ from app.services.perfil import (
     cuota_y_limite_mb,
     extensiones_permitidas,
 )
+from app.services.visualizacion import preparar_visualizacion
 
 
 router = APIRouter(
@@ -258,6 +261,39 @@ def listar_archivos(
     }
 
 
+@router.get("/{archivo_id}/ver")
+def ver_archivo(
+    archivo_id: int,
+    usuario: Usuario = Depends(get_current_user_flexible),
+    db: Session = Depends(get_db),
+):
+    """Devuelve el archivo para visualización in-app (G-15).
+
+    - `inline` para PDF, imágenes, texto plano y multimedia.
+    - `attachment` para el resto (Office, comprimidos, código, ejecutables).
+
+    Acepta el JWT por header, cookie o query param (`?token=...`) para
+    permitir embeberlo en `<img>` o `<iframe>`.
+
+    Valida que el usuario sea dueño del archivo o tenga un permiso vigente
+    en la tabla `permisos`.
+    """
+    info = preparar_visualizacion(archivo_id, usuario, db)
+
+    # Codificamos el nombre según RFC 5987 para soportar caracteres no-ASCII.
+    nombre_codificado = quote(info["nombre_original"])
+
+    return FileResponse(
+        path=info["ruta"],
+        media_type=info["media_type"],
+        headers={
+            "Content-Disposition": (
+                f"{info['disposition']}; filename*=UTF-8''{nombre_codificado}"
+            ),
+        },
+    )
+
+
 @router.patch("/{archivo_id}/papelera", response_model=ArchivoPapeleraOut)
 def mover_a_papelera(
     archivo_id: int,
@@ -291,8 +327,8 @@ def eliminar_definitivo(
     eliminar_definitivamente(archivo, db)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-  
-  
+
+
 @router.get("/compartidos")
 def listar_compartidos(
     usuario: Usuario = Depends(get_current_user),
@@ -311,7 +347,7 @@ def listar_compartidos(
         .join(Usuario, Usuario.id == Archivo.usuario_id)
         .where(
             Permiso.usuario_id == usuario.id,
-            Archivo.en_papelera.is_(False),  # 1. Filtra los archivos que el dueño mandó a la papelera
+            Archivo.en_papelera.is_(False),
         )
         .order_by(Permiso.fecha_compartido.desc())
     ).all()
@@ -323,10 +359,10 @@ def listar_compartidos(
                 "nombre": fila.Archivo.nombre_original,
                 "tamano_bytes": fila.Archivo.tamano_bytes,
                 "fecha_subida": fila.Archivo.fecha_subida,
-                "fecha_compartido": fila.fecha_compartido,  # 2. Fecha en que te lo compartieron
+                "fecha_compartido": fila.fecha_compartido,
                 "propietario_id": fila.Archivo.usuario_id,
-                "propietario_nombre": f"{fila.propietario_nombre} {fila.propietario_apellido}",  # 3. Nombre completo del dueño
-                "propietario_email": fila.propietario_email,  # 4. Email del dueño
+                "propietario_nombre": f"{fila.propietario_nombre} {fila.propietario_apellido}",
+                "propietario_email": fila.propietario_email,
             }
             for fila in resultados
         ]
