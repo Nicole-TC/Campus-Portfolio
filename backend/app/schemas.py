@@ -74,3 +74,44 @@ class PermisoCrear(BaseModel):
     archivo_id: int
     destinatario: str
     token_type: str = "bearer"
+
+
+# ---------------------------------------------------------------
+# G-9: Módulo de aprobación de usuarios (admin)
+# ---------------------------------------------------------------
+
+class CatalogoOut(BaseModel):
+    """Ítem genérico de catálogo (roles, estados, extensiones)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+
+
+class RolAdminOut(CatalogoOut):
+    """Rol con sus límites base, para que el front muestre las opciones al aprobar."""
+    cuota_total_mb: int
+    max_file_size_mb: int
+
+
+class UsuarioPendienteOut(BaseModel):
+    """Datos mínimos de un usuario en estado PENDIENTE."""
+    id: int
+    nombre: str
+    apellido: str
+    dni: str
+    email: str
+    telegram_id: Optional[int]
+    rol_solicitado: str
+    fecha_registro: datetime
+
+
+class AprobarUsuarioIn(BaseModel):
+    """Body para aprobar una cuenta: el admin elige el rol final."""
+    id_rol: int
+
+
+class UsuarioResueltoOut(UsuarioPendienteOut):
+    """Usuario ya aprobado/rechazado, con su rol y estado finales."""
+    rol: str
+    estado: str
