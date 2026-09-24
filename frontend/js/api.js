@@ -93,6 +93,16 @@ const Api = (() => {
         return { ok: true, status: 200, usuario, token: r.access_token };
     });
 
+    /** GET /api/usuarios/me */
+    const miPerfil = () => enCarga(async () => {
+        return Http.get('usuarios/me');
+    });
+
+    /** PATCH /api/usuarios/password */
+    const cambiarPassword = (password_actual, password_nueva) => enCarga(async () => {
+        return Http.patch('usuarios/password', { password_actual, password_nueva });
+    });
+
     /**
      * POST /auth/registro → el backend deja al usuario en estado PENDIENTE hasta la aprobación.
      * El frontend envía "rolSolicitado" en minúsculas; el backend espera "rol" en mayúsculas.
@@ -121,20 +131,41 @@ const Api = (() => {
     });
 
     // ---------------------------------------------------------------
-    // Drive (requieren sesión; los tres roles)
+    // Drive (backend real FastAPI con fallback)
     // ---------------------------------------------------------------
 
-    /** POST /drive/folders  { padreId, nombre } */
-    const crearCarpeta = (padreId, nombre) =>
-        llamar(null, u => Drive.crearCarpeta(u.id, padreId, nombre));
+    /** POST /api/carpetas  { nombre, carpeta_padre_id } */
+    const crearCarpeta = (padreId, nombre) => enCarga(async () => {
+        const idPadreNum = padreId ? Number(padreId) : null;
+        const res = await Http.post('carpetas', {
+            nombre: String(nombre || '').trim(),
+            carpeta_padre_id: isNaN(idPadreNum) ? null : idPadreNum
+        });
+        if (res.ok) {
+            return { ok: true, status: 201, ...res };
+        }
+        // Fallback local si el endpoint no está disponible
+        return llamar(null, u => Drive.crearCarpeta(u.id, padreId, nombre));
+    });
 
     /**
-     * POST /drive/files  (multipart: padreId + archivo). La latencia crece con el tamaño.
-     * onProgress(0-100) es opcional. Acá el avance es simulado; con backend real
-     * se usa Http.subir('drive/files', formData, { onProgress }), que da el
-     * progreso real de la subida.
+     * POST /api/archivos  (multipart: archivo + carpeta_id opcional).
+     * Soporta onProgress(0-100) para mostrar avance real de subida.
      */
     const subirArchivo = async (padreId, archivo, onProgress = null) => {
+        const formData = new FormData();
+        formData.append('archivo', archivo);
+        if (padreId) {
+            const idNum = Number(padreId);
+            if (!isNaN(idNum)) formData.append('carpeta_id', idNum);
+        }
+
+        const res = await Http.subir('archivos', formData, { onProgress });
+        if (res.ok) {
+            return { ok: true, status: 201, ...res };
+        }
+
+        // Fallback local simulado en caso de error de red o backend no alcanzable
         const duracion = LATENCIA_MS + Math.min(1500, Math.round((archivo.size || 0) / (1024 * 1024)) * 15);
         let timer = null;
         if (onProgress) {
@@ -148,6 +179,16 @@ const Api = (() => {
         return r;
     };
 
+    /** GET /api/archivos?carpeta_id=...&pagina=1&limite=50 */
+    const listarContenido = (carpetaId = null, pagina = 1, limite = 50) => enCarga(async () => {
+        let ruta = `archivos?pagina=${pagina}&limite=${limite}`;
+        if (carpetaId) {
+            const idNum = Number(carpetaId);
+            if (!isNaN(idNum)) ruta += `&carpeta_id=${idNum}`;
+        }
+        return Http.get(ruta);
+    });
+
     /** PATCH /drive/items/:id  { nombre } */
     const renombrar = (id, nombre) =>
         llamar(null, u => Drive.renombrar(u.id, id, nombre));
@@ -156,44 +197,96 @@ const Api = (() => {
     const mover = (id, destinoId) =>
         llamar(null, u => Drive.mover(u.id, id, destinoId));
 
-    /** DELETE /drive/items/:id  (a la papelera, en cascada) */
-    const eliminar = (id) =>
-        llamar(null, u => Drive.eliminar(u.id, id));
+    /** PATCH /api/archivos/:id/papelera */
+    const eliminar = (id) => enCarga(async () => {
+        const res = await Http.patch(`archivos/${id}/papelera`);
+        if (res.status === 0) return llamar(null, u => Drive.eliminar(u.id, id));
+        return res;
+    });
 
-    /** POST /drive/trash/:id/restore */
-    const restaurar = (id) =>
-        llamar(null, u => Drive.restaurar(u.id, id));
+    /** PATCH /api/archivos/:id/restaurar */
+    const restaurar = (id) => enCarga(async () => {
+        const res = await Http.patch(`archivos/${id}/restaurar`);
+        if (res.status === 0) return llamar(null, u => Drive.restaurar(u.id, id));
+        return res;
+    });
 
-    /** DELETE /drive/trash/:id */
-    const eliminarDefinitivo = (id) =>
-        llamar(null, u => Drive.eliminarDefinitivo(u.id, id));
+    /** DELETE /api/archivos/:id */
+    const eliminarDefinitivo = (id) => enCarga(async () => {
+        const res = await Http.delete(`archivos/${id}`);
+        if (res.status === 0) return llamar(null, u => Drive.eliminarDefinitivo(u.id, id));
+        return res;
+    });
 
-    /** DELETE /drive/trash */
-    const vaciarPapelera = () =>
-        llamar(null, u => Drive.vaciarPapelera(u.id));
+    /** DELETE /api/archivos/papelera/vaciar */
+    const vaciarPapelera = () => enCarga(async () => {
+        const res = await Http.delete('archivos/papelera/vaciar');
+        if (res.status === 0) return llamar(null, u => Drive.vaciarPapelera(u.id));
+        return res;
+    });
 
-    /** GET /drive/files/:id/download */
-    const descargar = (id) =>
-        llamar(null, u => Drive.descargar(u.id, id));
+    /** GET /api/archivos/papelera */
+    const listarPapelera = () => enCarga(async () => {
+        const res = await Http.get('archivos/papelera');
+        if (res.status === 0) return llamar(null, u => ({ ok: true, archivos: Drive.listarPapelera(u.id) }));
+        return res;
+    });
+
+    /** GET /api/archivos/:id/descargar */
+    const descargar = async (id) => {
+        try {
+            const token = Auth.obtenerToken();
+            const resp = await fetch(`/api/archivos/${id}/descargar`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            if (!resp.ok) {
+                return llamar(null, u => Drive.descargar(u.id, id));
+            }
+            const blob = await resp.blob();
+            let nombre = 'archivo';
+            const disposition = resp.headers.get('Content-Disposition') || resp.headers.get('content-disposition');
+            if (disposition && disposition.includes('filename=')) {
+                nombre = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = nombre;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+            return { ok: true };
+        } catch (e) {
+            return llamar(null, u => Drive.descargar(u.id, id));
+        }
+    };
 
     // ---------------------------------------------------------------
-    // Compartir (solo docente y admin; el alumno recibe pero no comparte)
+    // Compartir
     // ---------------------------------------------------------------
 
     /**
-     * GET /drive/shares/received  → { items: [{ share, nodo, propietario, permiso }] }
-     * Lo que otras personas compartieron con quien tiene la sesión. Lo pueden
-     * pedir los tres roles (el alumno recibe aunque no comparta).
+     * GET /api/archivos/compartidos
      */
-    const compartidosConmigo = () =>
-        llamar(null, u => ({ ok: true, items: Drive.compartidosConmigo(u.id) }));
+    const compartidosConmigo = () => enCarga(async () => {
+        const res = await Http.get('archivos/compartidos');
+        if (res.status === 0) return llamar(null, u => ({ ok: true, items: Drive.compartidosConmigo(u.id) }));
+        return res;
+    });
 
     /**
-     * POST /drive/items/:id/shares  { destinatario, permiso }
+     * POST /api/permisos  { archivo_id, destinatario }
      * "destinatario" es el correo o el DNI de la otra persona.
      */
-    const compartir = (id, destinatario, permiso) =>
-        llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, destinatario, permiso));
+    const compartir = (id, destinatario, permiso = 'lector') => enCarga(async () => {
+        const res = await Http.post('permisos', {
+            archivo_id: Number(id),
+            destinatario: String(destinatario).trim(),
+        });
+        if (res.status === 0) return llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, destinatario, permiso));
+        return res;
+    });
 
     /** PATCH /drive/shares/:shareId  { permiso } */
     const cambiarPermisoComparticion = (shareId, permiso) =>
@@ -204,8 +297,29 @@ const Api = (() => {
         llamar(null, u => Drive.quitarComparticion(u.id, shareId));
 
     // ---------------------------------------------------------------
-    // Administración (solo rol admin)
+    // Administración (conectado con backend real /admin)
     // ---------------------------------------------------------------
+
+    /** GET /api/admin/usuarios/pendientes */
+    const obtenerPendientes = () => enCarga(async () => {
+        const res = await Http.get('admin/usuarios/pendientes');
+        if (res.ok) {
+            // Http.js guarda arreglos en res.datos o en res directamente si fuera objeto
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return { ok: false, status: res.status, motivo: res.motivo, items: [] };
+    });
+
+    /** PATCH /api/admin/usuarios/:id/aprobar  { id_rol } */
+    const aprobarUsuario = (id, idRol) => enCarga(async () => {
+        return Http.patch(`admin/usuarios/${id}/aprobar`, { id_rol: Number(idRol) });
+    });
+
+    /** PATCH /api/admin/usuarios/:id/rechazar */
+    const rechazarUsuario = (id) => enCarga(async () => {
+        return Http.patch(`admin/usuarios/${id}/rechazar`, {});
+    });
 
     /** PATCH /admin/users/:id/status  { estado, motivo?, rol? }  (al aprobar se fija el rol final) */
     const cambiarEstadoUsuario = (id, estado, opciones) =>
@@ -265,10 +379,11 @@ const Api = (() => {
         llamar('admin', () => { Auth.restaurarPoliticas(); return { ok: true }; });
 
     return {
-        login, registrar, recuperarPassword,
-        crearCarpeta, subirArchivo, renombrar, mover, eliminar, restaurar,
-        eliminarDefinitivo, vaciarPapelera, descargar,
+        login, registrar, recuperarPassword, miPerfil, cambiarPassword,
+        crearCarpeta, subirArchivo, listarContenido, renombrar, mover, eliminar, restaurar,
+        eliminarDefinitivo, vaciarPapelera, listarPapelera, descargar,
         compartir, compartidosConmigo, cambiarPermisoComparticion, quitarComparticion,
+        obtenerPendientes, aprobarUsuario, rechazarUsuario,
         cambiarEstadoUsuario, cambiarRol, guardarExcepciones, cambiarCuota,
         guardarPoliticaGlobal, guardarPoliticaRol, restaurarPoliticas,
     };
