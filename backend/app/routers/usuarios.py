@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Usuario
-from app.schemas import AlmacenamientoOut, LimitesOut, PerfilOut
+from app.schemas import AlmacenamientoOut, CambiarPasswordIn, LimitesOut, PerfilOut
+from app.security import hash_password, verificar_password
 from app.services.perfil import (
     BYTES_POR_MB,
     bytes_usados,
@@ -44,3 +45,25 @@ def mi_perfil(
             extensiones_permitidas=extensiones_permitidas(usuario, db),
         ),
     )
+
+
+@router.patch("/password")
+def cambiar_password(
+    datos: CambiarPasswordIn,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Permite al usuario cambiar su contraseña validando previamente la actual."""
+    if not verificar_password(datos.password_actual, usuario.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña actual ingresada es incorrecta.",
+        )
+    if len(datos.password_nueva) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La nueva contraseña debe tener al menos 6 caracteres.",
+        )
+    usuario.password_hash = hash_password(datos.password_nueva)
+    db.commit()
+    return {"mensaje": "Contraseña actualizada con éxito."}
