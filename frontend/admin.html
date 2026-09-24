@@ -7,10 +7,80 @@
     <title>CampusCloud — Usuarios y cuotas</title>
 
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="alternate icon" type="image/x-icon" href="favicon.ico">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/estilo.css">
+    <style>
+        .ext-modal-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+            margin: 14px 0 10px;
+        }
+        .ext-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 8px;
+            max-height: 320px;
+            overflow-y: auto;
+            padding: 8px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+        .ext-card-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.88rem;
+            font-weight: 500;
+            transition: all .15s ease;
+            user-select: none;
+            margin: 0;
+        }
+        .ext-card-item:hover {
+            border-color: #2563eb;
+            background: #eff6ff;
+        }
+        .ext-card-item.is-selected {
+            border-color: #ef4444;
+            background: #fef2f2;
+            color: #991b1b;
+        }
+        .ext-card-item.is-disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+            background: #f1f5f9;
+            border-color: #cbd5e1;
+        }
+        .ext-badge-danger {
+            font-size: 0.68rem;
+            padding: 2px 5px;
+            background: #fee2e2;
+            color: #dc2626;
+            border-radius: 4px;
+            font-weight: 600;
+            margin-left: auto;
+        }
+        .ext-badge-inherited {
+            font-size: 0.68rem;
+            padding: 2px 5px;
+            background: #e2e8f0;
+            color: #475569;
+            border-radius: 4px;
+            font-weight: 600;
+            margin-left: auto;
+        }
+    </style>
 </head>
 
 <body>
@@ -56,6 +126,8 @@
         const $ = (sel, raiz = document) => raiz.querySelector(sel);
         const { esc, iconos, formatoTamanio, formatoFecha } = UI;
         const tam = (mb) => formatoTamanio(mb, { cero: '0 MB' });
+        const capitalizar = (s) => s ? (String(s).charAt(0).toUpperCase() + String(s).slice(1).toLowerCase()) : '';
+        const PELIGROSAS_EXT = new Set(['.exe', '.bat', '.sh', '.cmd', '.msi', '.php', '.phtml', '.vbs', '.scr', '.com']);
 
         $('#topbar').innerHTML = UI.topbarHtml(admin);
         const content = $('#content');
@@ -68,6 +140,9 @@
             busqueda: '',
             filtroEstado: 'todos',
             pendientes: null,
+            usuarios: null,
+            estadisticas: null,
+            roles: null,
             tablas: {
                 usuarios: { clave: 'nombre', dir: 'asc', pagina: 1 },
             },
@@ -142,16 +217,27 @@
         }
 
         function estadisticas() {
-            const usuarios = Auth.listarUsuarios();
+            if (estado.estadisticas) {
+                return {
+                    total: estado.estadisticas.total_usuarios || 0,
+                    nuevos: estado.estadisticas.nuevos_este_mes || 0,
+                    pendientes: estado.estadisticas.solicitudes_pendientes != null
+                        ? estado.estadisticas.solicitudes_pendientes
+                        : (estado.pendientes ? estado.pendientes.length : 0),
+                    usoMB: estado.estadisticas.almacenamiento_usado_mb || 0,
+                    capacidadMB: estado.estadisticas.capacidad_servidor_mb || 102400,
+                };
+            }
+            const usuarios = (estado.usuarios || Auth.listarUsuarios()).filter(u => String(u.estado || '').toLowerCase() !== 'pendiente');
             const hace30 = Date.now() - 30 * 86400000;
-            const cantPendientes = estado.pendientes !== null 
-                ? estado.pendientes.length 
-                : usuarios.filter(u => u.estado === 'pendiente').length;
+            const cantPendientes = estado.pendientes !== null ? estado.pendientes.length : 0;
+            const usoTotal = usuarios.reduce((a, u) => a + (u.uso_bytes != null ? (u.uso_bytes / 1048576) : Drive.usoMB(u.id)), 0);
             return {
                 total: usuarios.length,
-                nuevos: usuarios.filter(u => Date.parse(u.creado) >= hace30).length,
+                nuevos: usuarios.filter(u => Date.parse(u.fecha_registro || u.creado || 0) >= hace30).length,
                 pendientes: cantPendientes,
-                usoMB: usuarios.reduce((a, u) => a + Drive.usoMB(u.id), 0),
+                usoMB: usoTotal,
+                capacidadMB: 102400,
             };
         }
 
@@ -159,14 +245,14 @@
         // Vista: usuarios y cuotas
         // ---------------------------------------------------------------
         function htmlEstadisticas(s) {
-            const cap = Auth.CAPACIDAD_SERVIDOR_MB;
+            const cap = s.capacidadMB || Auth.CAPACIDAD_SERVIDOR_MB;
             const pct = Math.min(100, (s.usoMB / cap) * 100);
             return `
       <div class="stat-grid">
         <div class="stat-card">
           <span class="stat-icon">${iconos.usuarios}</span>
           <div>
-            <p class="stat-label">Usuarios totales</p>
+            <p class="stat-label">Usuarios registrados</p>
             <p class="stat-value">${s.total}</p>
             <p class="stat-note is-ok">+${s.nuevos} este mes</p>
           </div>
@@ -207,7 +293,7 @@
               ${avatar(u)}
               <div class="cell-stack"><strong>${esc(`${u.nombre} ${u.apellido || ''}`.trim())}</strong><span>${esc(u.email)}</span></div>
             </div>
-            <div class="req-field"><span class="req-label">DNI</span><span>${esc(Auth.formatearDNI(u.dni) || '—')}</span></div>
+            <div class="req-field"><span class="req-label">DNI</span><span>${esc(Auth.formatearDNI(u.dni) || u.dni || '—')}</span></div>
             <div class="req-field"><span class="req-label">Rol solicitado</span>${UI.badgeRol((u.rol_solicitado || u.rolSolicitado || 'alumno').toLowerCase())}</div>
             <div class="req-actions">
               <button type="button" class="dc-btn dc-btn-soft dc-btn-sm" data-aprobar="${esc(u.id)}" data-rol="alumno" data-id-rol="1">${iconos.check}Aprobar como Alumno</button>
@@ -221,43 +307,74 @@
 
         function tablaUsuarios() {
             const q = UI.normalizar(estado.busqueda);
-            const filas = Auth.listarUsuarios().filter(u => coincide(u, q) && (estado.filtroEstado === 'todos' || u.estado === estado.filtroEstado));
+            let lista = estado.usuarios || Auth.listarUsuarios();
+            
+            // EXCLUIR SIEMPRE PENDIENTES DE ESTA TABLA
+            const filas = lista
+                .filter(u => String(u.estado || '').toLowerCase() !== 'pendiente')
+                .filter(u => {
+                    const est = String(u.estado || '').toLowerCase();
+                    if (estado.filtroEstado === 'todos') return true;
+                    if (estado.filtroEstado === 'aprobado' || estado.filtroEstado === 'activo') return est === 'activo' || est === 'aprobado';
+                    if (estado.filtroEstado === 'rechazado') return est === 'rechazado' || est === 'suspendido';
+                    return true;
+                })
+                .filter(u => {
+                    const nombreCompleto = `${u.nombre || ''} ${u.apellido || ''}`.trim();
+                    return !q || [nombreCompleto, u.email, u.dni, Auth.formatearDNI(u.dni)].some(x => x && UI.normalizar(String(x)).includes(q));
+                });
+
             const columnas = [
                 {
-                    clave: 'nombre', titulo: 'Usuario', ordenable: true, valor: u => u.nombre,
-                    render: u => `<div class="req-user">${avatar(u)}<div class="cell-stack"><strong>${esc(u.nombre)}</strong><span>${esc(u.email)}</span></div></div>`,
-                },
-                { clave: 'dni', titulo: 'DNI', ordenable: true, valor: u => u.dni, render: u => esc(Auth.formatearDNI(u.dni) || '—') },
-                {
-                    clave: 'rol', titulo: 'Rol actual', ordenable: true, valor: u => u.rol,
-                    render: u => `<span class="badge-stack">${UI.badgeRol(u.rol)}${estadoBadge(u)}</span>`,
-                },
-                {
-                    clave: 'uso', titulo: 'Espacio ocupado', ordenable: true, valor: u => Drive.usoMB(u.id),
+                    clave: 'nombre', titulo: 'Usuario', ordenable: true,
+                    valor: u => `${u.nombre || ''} ${u.apellido || ''}`.trim(),
                     render: u => {
-                        const pol = Auth.politicaEfectiva(u);
-                        const uso = Drive.usoMB(u.id);
-                        const pct = Math.min(100, (uso / pol.cuotaMB) * 100);
-                        const nivel = pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok';
-                        return `<div class="usage"><span>${esc(tam(uso))}</span>
-            <div class="dc-meter dc-meter-mini" role="progressbar" aria-label="Espacio usado de ${esc(u.nombre)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><div class="dc-meter-fill dc-meter-${nivel}" style="width:${pct.toFixed(1)}%"></div></div></div>`;
+                        const nom = `${u.nombre || ''} ${u.apellido || ''}`.trim() || 'Usuario';
+                        return `<div class="req-user">${avatar({ id: u.id, nombre: nom })}<div class="cell-stack"><strong>${esc(nom)}</strong><span>${esc(u.email || '')}</span></div></div>`;
                     },
                 },
                 {
-                    clave: 'cuota', titulo: 'Cuota asignada', ordenable: true, valor: u => Auth.politicaEfectiva(u).cuotaMB,
+                    clave: 'dni', titulo: 'DNI', ordenable: true, valor: u => u.dni,
+                    render: u => esc(Auth.formatearDNI(u.dni) || u.dni || '—')
+                },
+                {
+                    clave: 'rol', titulo: 'Rol actual', ordenable: true, valor: u => u.rol,
                     render: u => {
-                        const pol = Auth.politicaEfectiva(u);
-                        return `${esc(formatoTamanio(pol.cuotaMB))}${pol.origen.cuotaMB === 'usuario' ? '<span class="dc-origin">Personalizada</span>' : ''}`;
+                        const rolNombre = String(u.rol || 'alumno').toLowerCase();
+                        const esInactivo = ['rechazado', 'suspendido'].includes(String(u.estado || '').toLowerCase());
+                        return `<span class="badge-stack">${UI.badgeRol(rolNombre)}${esInactivo ? UI.badge('Inactiva', 'danger') : ''}</span>`;
+                    },
+                },
+                {
+                    clave: 'uso', titulo: 'Espacio ocupado', ordenable: true,
+                    valor: u => (u.uso_bytes != null ? (u.uso_bytes / 1048576) : Drive.usoMB(u.id)),
+                    render: u => {
+                        const usoMB = u.uso_bytes != null ? (u.uso_bytes / 1048576) : Drive.usoMB(u.id);
+                        const cuotaMB = u.cuota_efectiva_mb || (u.cuota_personalizada_mb || 250);
+                        const pct = Math.min(100, (usoMB / cuotaMB) * 100);
+                        const nivel = pct >= 90 ? 'alert' : pct >= 70 ? 'warn' : 'ok';
+                        return `<div class="usage"><span>${esc(tam(usoMB))}</span>
+            <div class="dc-meter dc-meter-mini" role="progressbar" aria-label="Espacio usado" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(pct)}"><div class="dc-meter-fill dc-meter-${nivel}" style="width:${pct.toFixed(1)}%"></div></div></div>`;
+                    },
+                },
+                {
+                    clave: 'cuota', titulo: 'Cuota asignada', ordenable: true,
+                    valor: u => (u.cuota_efectiva_mb || u.cuota_personalizada_mb || 250),
+                    render: u => {
+                        const cuotaMB = u.cuota_efectiva_mb || u.cuota_personalizada_mb || 250;
+                        const esPers = u.cuota_personalizada_mb != null;
+                        return `${esc(formatoTamanio(cuotaMB))}${esPers ? '<span class="dc-origin">Personalizada</span>' : ''}`;
                     },
                 },
                 {
                     clave: 'acciones', titulo: 'Acciones', clase: 'col-actions',
                     render: u => `<span class="row-actions">
           <button type="button" class="dc-link" data-editar-cuota="${esc(u.id)}">Editar cuota</button>
-          <button type="button" class="dc-link" data-menu-usuario="${esc(u.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Gestionar la cuenta de ${esc(u.nombre)}">Gestionar</button>
+          <button type="button" class="dc-link" data-menu-usuario="${esc(u.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="Gestionar la cuenta">Gestionar</button>
         </span>`,
                 },
             ];
+
             return UI.tabla({
                 caption: 'Usuarios registrados',
                 columnas, filas,
@@ -289,7 +406,7 @@
             <label class="dc-inline-field">
               <span class="visually-hidden">Filtrar por estado</span>
               <select id="filtroEstado">
-                ${[['todos', 'Todos los estados'], ['aprobado', 'Aprobadas'], ['pendiente', 'Pendientes'], ['rechazado', 'Rechazadas']].map(([v, t]) => `<option value="${v}"${estado.filtroEstado === v ? ' selected' : ''}>${t}</option>`).join('')}
+                ${[['todos', 'Todos los estados'], ['aprobado', 'Activas'], ['rechazado', 'Inactivas / Suspendidas']].map(([v, t]) => `<option value="${v}"${estado.filtroEstado === v ? ' selected' : ''}>${t}</option>`).join('')}
               </select>
             </label>
             <div class="search search-inline">
@@ -304,43 +421,44 @@
         }
 
         // ---------------------------------------------------------------
-        // Vista: políticas por rol
+        // Vista: políticas por rol (conectado al catálogo real de PostgreSQL)
         // ---------------------------------------------------------------
-        function filaPolitica(valores, campo, formato) {
-            return valores[campo] != null ? formato(valores[campo]) : '<small>Hereda de la política general</small>';
-        }
-
         function vistaPoliticas() {
-            const pol = Auth.obtenerPoliticas();
-            const usuarios = Auth.listarUsuarios();
-            const tarjetas = [
-                { scope: 'global', titulo: 'Política general', desc: 'Base de todas las cuentas. Cada rol y cada usuario puede pisarla.', valores: pol.global, cuenta: usuarios.length, etiquetaCuenta: 'cuentas en total' },
-                ...Object.entries(Auth.ROLES).map(([k, nombre]) => ({
-                    scope: k, titulo: `Rol ${nombre}`, desc: 'Se aplica a las cuentas con este rol.', valores: pol.roles[k],
-                    cuenta: usuarios.filter(u => u.rol === k).length, etiquetaCuenta: 'cuentas con este rol',
-                })),
+            const rolesList = estado.roles || [
+                { id: 1, nombre: 'ALUMNO', cuota_total_mb: 250, max_file_size_mb: 25, cantidad_usuarios: 0 },
+                { id: 2, nombre: 'DOCENTE', cuota_total_mb: 1024, max_file_size_mb: 100, cantidad_usuarios: 0 },
+                { id: 3, nombre: 'ADMIN', cuota_total_mb: 2048, max_file_size_mb: 500, cantidad_usuarios: 0 },
             ];
+            const tarjetas = rolesList.map(r => ({
+                id: r.id,
+                titulo: `Rol ${capitalizar(r.nombre)}`,
+                desc: `Políticas y límites asignados a las cuentas con rol ${r.nombre}.`,
+                cuotaMB: r.cuota_total_mb,
+                maxArchivoMB: r.max_file_size_mb,
+                cuenta: r.cantidad_usuarios || 0,
+            }));
             return `
       <div class="page-head">
         <div>
           <p class="eyebrow">Panel de administración</p>
           <h1 class="page-title">Políticas por rol</h1>
-          <p class="page-sub">Definí espacio, tamaño máximo y extensiones para cada rol.</p>
+          <p class="page-sub">Definí el espacio total y el tamaño máximo por archivo para cada rol.</p>
         </div>
-        <button type="button" class="dc-btn dc-btn-ghost" id="btnRestaurarPol">${iconos.restaurar}Restaurar valores originales</button>
       </div>
-      <div class="dc-note">${iconos.info}<span>Los cambios aplican a las subidas nuevas. Los archivos que ya están guardados no se tocan. Las excepciones por usuario se cargan con “Editar cuota” o “Gestionar” en Usuarios y cuotas.</span></div>
+      <div class="dc-note">${iconos.info}<span>Los cambios aplican a las subidas nuevas. Los archivos que ya están guardados no se tocan. Las excepciones por usuario se cargan con “Editar cuota” en la sección de usuarios.</span></div>
       <div class="dc-cards">
         ${tarjetas.map(t => `
           <article class="dc-policy-card">
-            <header><h3>${esc(t.titulo)}</h3>${UI.badge(`${t.cuenta} ${t.etiquetaCuenta}`, 'neutral')}</header>
+            <header><h3>${esc(t.titulo)}</h3>${UI.badge(`${t.cuenta} cuentas con este rol`, 'neutral')}</header>
             <p class="dc-muted">${esc(t.desc)}</p>
             <dl>
-              <dt>Espacio total</dt><dd>${filaPolitica(t.valores, 'cuotaMB', v => esc(formatoTamanio(v)))}</dd>
-              <dt>Tamaño máximo por archivo</dt><dd>${filaPolitica(t.valores, 'maxArchivoMB', v => esc(formatoTamanio(v)))}</dd>
-              <dt>Extensiones</dt><dd>${filaPolitica(t.valores, 'extensiones', v => esc(Auth.describirExtensiones(v)))}</dd>
+              <dt>Espacio total</dt><dd>${esc(formatoTamanio(t.cuotaMB))}</dd>
+              <dt>Tamaño máximo por archivo</dt><dd>${esc(formatoTamanio(t.maxArchivoMB))}</dd>
             </dl>
-            <button type="button" class="dc-btn dc-btn-primary dc-btn-sm" data-editar-politica="${esc(t.scope)}">${iconos.editar}Editar</button>
+            <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
+              <button type="button" class="dc-btn dc-btn-primary dc-btn-sm" data-editar-rol-id="${esc(t.id)}">${iconos.editar}Editar límites</button>
+              <button type="button" class="dc-btn dc-btn-ghost dc-btn-sm" data-extensiones-rol-id="${esc(t.id)}">${iconos.escudo}Extensiones bloqueadas</button>
+            </div>
           </article>`).join('')}
       </div>`;
         }
@@ -352,7 +470,6 @@
             try {
                 content.innerHTML = estado.seccion === 'politicas' ? vistaPoliticas() : vistaUsuarios();
             } catch (err) {
-                // Si la sección falla al dibujarse, se muestra un aviso con "Reintentar" en vez de quedar en blanco.
                 console.error(err);
                 content.innerHTML = UI.errorVista('No pudimos mostrar esta sección. Probá de nuevo.');
             }
@@ -367,13 +484,6 @@
             
             const r = await Api.aprobarUsuario(id, idRol);
             if (!r.ok) {
-                // Fallback local si el endpoint no está disponible
-                const u = Auth.obtenerUsuario(id);
-                if (u) {
-                    const ok = resultado(await Api.cambiarEstadoUsuario(id, 'aprobado', { rol }), `Cuenta de ${u.nombre} aprobada.`);
-                    if (!ok) fila.querySelectorAll('button').forEach(b => { b.disabled = false; });
-                    return;
-                }
                 UI.toast(r.motivo || 'Error al aprobar la cuenta.', { tipo: 'error' });
                 fila.querySelectorAll('button').forEach(b => { b.disabled = false; });
                 return;
@@ -381,190 +491,464 @@
 
             UI.toast(`Cuenta aprobada con éxito.`, { tipo: 'ok' });
             await cargarPendientes();
+            await cargarUsuarios();
+            await cargarEstadisticas();
+            await cargarRoles();
             render();
         }
 
-        // Para reactivar una cuenta rechazada o suspendida (pide el rol final).
-        async function aprobar(id) {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return;
+        async function rechazar(id) {
             const v = await UI.formulario({
-                titulo: `Aprobar a ${u.nombre}`,
-                descripcion: 'Elegí el rol de la cuenta. Podés cambiarlo cuando quieras.',
-                campos: [{ nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: rolesOpciones(), requerido: true }],
-                valores: { rol: u.rolSolicitado },
-                textoOk: 'Aprobar cuenta',
-                alEnviar: async (d) => { const r = await Api.cambiarEstadoUsuario(id, 'aprobado', { rol: d.rol }); return r.ok ? null : r.motivo; },
-            });
-            if (v) { render(); UI.toast(`Cuenta de ${u.nombre} aprobada.`, { tipo: 'ok' }); }
-        }
-
-        async function rechazar(id, suspender = false) {
-            const v = await UI.formulario({
-                titulo: `${suspender ? 'Suspender' : 'Rechazar'} cuenta`,
-                descripcion: 'La persona va a ver este motivo cuando intente iniciar sesión.',
+                titulo: 'Rechazar cuenta',
+                descripcion: 'La persona va a ver este motivo cuando intente iniciar sesión o en su notificación.',
                 campos: [
                     { nombre: 'motivo', etiqueta: 'Motivo', tipo: 'select', requerido: true, opciones: Auth.MOTIVOS_RECHAZO.map(m => ({ valor: m.valor, texto: m.texto })) },
                     {
                         nombre: 'detalle', etiqueta: 'Detalle', tipo: 'textarea', placeholder: 'Agregá una aclaración para la persona',
-                        requeridoSi: d => d.motivo === 'otro', msgRequerido: 'Explicá el motivo.',
+                        mostrarSi: d => d.motivo === 'otro', requeridoSi: d => d.motivo === 'otro', msgRequerido: 'Explicá el motivo.',
                     },
                 ],
                 valores: { motivo: Auth.MOTIVOS_RECHAZO[0].valor },
-                textoOk: suspender ? 'Suspender cuenta' : 'Rechazar cuenta',
+                textoOk: 'Rechazar cuenta',
                 peligro: true,
                 alEnviar: async (d) => {
-                    const r = await Api.rechazarUsuario(id);
-                    if (r.ok) return null;
-
-                    // Fallback local
-                    const base = d.motivo === 'otro' ? '' : Auth.MOTIVOS_RECHAZO.find(m => m.valor === d.motivo).texto;
-                    const texto = [base, d.detalle].filter(Boolean).join(' ');
-                    const rLocal = await Api.cambiarEstadoUsuario(id, 'rechazado', { motivo: texto });
-                    return rLocal.ok ? null : (r.motivo || rLocal.motivo);
+                    const motivoTexto = d.motivo === 'otro' ? d.detalle : (Auth.MOTIVOS_RECHAZO.find(m => m.valor === d.motivo)?.texto || d.motivo);
+                    const r = await Api.rechazarUsuario(id, motivoTexto);
+                    return r.ok ? null : (r.motivo || 'Error al rechazar cuenta');
                 },
             });
             if (v) { 
                 await cargarPendientes();
+                await cargarUsuarios();
+                await cargarEstadisticas();
                 render(); 
-                UI.toast(`Cuenta ${suspender ? 'suspendida' : 'rechazada'}.`, { tipo: 'ok' }); 
+                UI.toast('Cuenta rechazada.', { tipo: 'ok' }); 
             }
         }
 
         async function cambiarRol(id) {
-            const u = Auth.obtenerUsuario(id);
+            const u = (estado.usuarios && estado.usuarios.find(x => String(x.id) === String(id))) || Auth.obtenerUsuario(id);
             if (!u) return;
+            const rolesList = estado.roles || [
+                { id: 1, nombre: 'ALUMNO' },
+                { id: 2, nombre: 'DOCENTE' },
+                { id: 3, nombre: 'ADMIN' },
+            ];
+            const rolesOpcionesList = rolesList.map(r => ({ valor: r.id, texto: capitalizar(r.nombre) }));
+            const rolActualId = rolesList.find(r => r.nombre.toUpperCase() === String(u.rol).toUpperCase())?.id || 1;
+
             const v = await UI.formulario({
                 titulo: `Cambiar rol de ${u.nombre}`,
-                descripcion: 'El cambio se aplica la próxima vez que la persona cargue una página.',
-                campos: [{ nombre: 'rol', etiqueta: 'Rol', tipo: 'select', opciones: rolesOpciones(), requerido: true }],
-                valores: { rol: u.rol },
+                descripcion: 'El cambio recalculará los límites de cuota según lo asignado al nuevo rol.',
+                campos: [{ nombre: 'id_rol', etiqueta: 'Rol', tipo: 'select', opciones: rolesOpcionesList, requerido: true }],
+                valores: { id_rol: rolActualId },
                 textoOk: 'Guardar rol',
-                alEnviar: async (d) => { const r = await Api.cambiarRol(id, d.rol); return r.ok ? null : r.motivo; },
+                alEnviar: async (d) => {
+                    const r = await Api.cambiarRol(id, d.id_rol);
+                    return r.ok ? null : (r.motivo || 'Error al cambiar rol');
+                },
             });
-            if (v) { render(); UI.toast('Rol actualizado.', { tipo: 'ok' }); }
+            if (v) {
+                await cargarUsuarios();
+                await cargarRoles();
+                render();
+                UI.toast('Rol actualizado con éxito.', { tipo: 'ok' });
+            }
         }
 
         async function editarCuota(id) {
-            const u = Auth.obtenerUsuario(id);
+            const u = (estado.usuarios && estado.usuarios.find(x => String(x.id) === String(id))) || Auth.obtenerUsuario(id);
             if (!u) return;
-            const { cuotaMB: _propia, ...sinCuota } = u.excepciones;
-            const base = Auth.politicaEfectiva({ ...u, excepciones: sinCuota });
-            const propia = u.excepciones.cuotaMB;
+            const usoMB = u.uso_bytes != null ? Math.round(u.uso_bytes / 1048576) : Drive.usoMB(u.id);
+            const propia = u.cuota_personalizada_mb;
             const enGB = propia != null && propia >= 1024 && propia % 1024 === 0;
+            const maxPropio = u.max_file_personalizado_mb;
+
             const v = await UI.formulario({
-                titulo: `Editar cuota de ${u.nombre}`,
+                titulo: `Editar cuota y límites de ${u.nombre}`,
                 campos: [
-                    { nombre: 'resumen', tipo: 'info', texto: `Usa ${tam(Drive.usoMB(u.id))}. Sin excepción, el rol ${Auth.ROLES[u.rol]} tiene ${tam(base.cuotaMB)}.` },
+                    { nombre: 'resumen', tipo: 'info', texto: `Espacio en uso actual: ${tam(usoMB)}. Cuota efectiva: ${tam(u.cuota_efectiva_mb || 250)}. Tamaño máx. archivo: ${tam(u.max_file_efectivo_mb || 25)}.` },
                     {
-                        nombre: 'valor', etiqueta: 'Cuota asignada', tipo: 'number', placeholder: String(base.cuotaMB),
-                        ayuda: 'Dejalo vacío para volver al valor que corresponde al rol.',
-                        validar: (v, d) => (v * (d.unidad === 'GB' ? 1024 : 1) < 1 ? 'La cuota mínima es 1 MB.' : null),
+                        nombre: 'valor', etiqueta: 'Cuota personalizada', tipo: 'number',
+                        placeholder: String(u.cuota_efectiva_mb || 250),
+                        ayuda: 'Dejalo vacío para volver al valor correspondiente a su rol.',
+                        validar: (v, d) => (v != null && v !== '' && Number(v) * (d.unidad === 'GB' ? 1024 : 1) < 1 ? 'La cuota mínima es 1 MB.' : null),
                     },
                     { nombre: 'unidad', etiqueta: 'Unidad', tipo: 'select', opciones: [{ valor: 'MB', texto: 'MB' }, { valor: 'GB', texto: 'GB' }] },
+                    {
+                        nombre: 'maxArchivo', etiqueta: 'Tamaño máximo por archivo (MB)', tipo: 'number',
+                        placeholder: String(u.max_file_efectivo_mb || 25),
+                        ayuda: 'Dejalo vacío para heredar del rol o igualar a la cuota. No puede superar la cuota total.',
+                        validar: (v, d) => {
+                            if (v != null && v !== '') {
+                                const num = Number(v);
+                                if (num < 1) return 'El tamaño mínimo por archivo es 1 MB.';
+                                const cuotaCalc = (d.valor != null && d.valor !== '')
+                                    ? Math.round(Number(d.valor) * (d.unidad === 'GB' ? 1024 : 1))
+                                    : (u.cuota_efectiva_mb || 250);
+                                if (num > cuotaCalc) return `No puede superar la cuota total (${cuotaCalc} MB).`;
+                            }
+                            return null;
+                        },
+                    },
                 ],
-                valores: { valor: propia != null ? (enGB ? propia / 1024 : propia) : '', unidad: enGB ? 'GB' : 'MB' },
-                textoOk: 'Guardar cuota',
+                valores: {
+                    valor: propia != null ? (enGB ? propia / 1024 : propia) : '',
+                    unidad: enGB ? 'GB' : 'MB',
+                    maxArchivo: maxPropio != null ? maxPropio : '',
+                },
+                textoOk: 'Guardar límites',
                 alEnviar: async (d) => {
-                    const mb = d.valor == null ? null : Math.max(1, Math.round(d.valor * (d.unidad === 'GB' ? 1024 : 1)));
-                    const r = await Api.cambiarCuota(id, mb);
-                    return r.ok ? null : r.motivo;
+                    const mb = (d.valor == null || d.valor === '') ? null : Math.max(1, Math.round(Number(d.valor) * (d.unidad === 'GB' ? 1024 : 1)));
+                    const maxMb = (d.maxArchivo == null || d.maxArchivo === '') ? null : Math.max(1, Math.round(Number(d.maxArchivo)));
+                    const r = await Api.cambiarCuota(id, mb, maxMb);
+                    return r.ok ? null : (r.motivo || 'Error al actualizar cuota');
                 },
             });
-            if (v) { render(); UI.toast('Cuota actualizada.', { tipo: 'ok' }); }
-        }
-
-        // ---------------------------------------------------------------
-        // Formulario de políticas (global, rol o excepción de usuario)
-        // ---------------------------------------------------------------
-        function camposPolitica(permiteHeredar) {
-            const opcionesExt = [
-                ...(permiteHeredar ? [{ valor: 'heredar', texto: 'Heredar' }] : []),
-                { valor: 'todas', texto: 'Permitir todas' },
-                { valor: 'permitidas', texto: 'Solo las de la lista' },
-                { valor: 'bloqueadas', texto: 'Bloquear las de la lista' },
-            ];
-            const ayudaVacio = permiteHeredar ? 'Dejalo vacío para heredar.' : '';
-            return [
-                { nombre: 'cuotaMB', etiqueta: 'Espacio total (MB)', tipo: 'number', requerido: !permiteHeredar, min: 1, max: 100000000, ayuda: [ayudaVacio, '1 GB = 1024 MB.'].filter(Boolean).join(' ') },
-                {
-                    nombre: 'maxArchivoMB', etiqueta: 'Tamaño máximo por archivo (MB)', tipo: 'number', requerido: !permiteHeredar, min: 0.01, max: 1000000, ayuda: ayudaVacio,
-                    validar: (v, d) => (d.cuotaMB != null && !Number.isNaN(d.cuotaMB) && v > d.cuotaMB) ? 'No puede superar el espacio total.' : null,
-                },
-                { nombre: 'extModo', etiqueta: 'Extensiones de archivo', tipo: 'select', opciones: opcionesExt },
-                {
-                    nombre: 'extLista', etiqueta: 'Lista de extensiones', tipo: 'text', placeholder: 'pdf, docx, png',
-                    ayuda: 'Separadas por coma, sin punto.',
-                    mostrarSi: d => d.extModo === 'permitidas' || d.extModo === 'bloqueadas',
-                    requeridoSi: d => d.extModo === 'permitidas', msgRequerido: 'Indicá al menos una extensión permitida.',
-                    validar: v => Auth.parsearExtensiones(v).invalidas.length ? 'Usá solo letras y números, separados por coma.' : null,
-                },
-            ];
-        }
-
-        function valoresPolitica(p, permiteHeredar) {
-            const ext = p.extensiones;
-            return {
-                cuotaMB: p.cuotaMB != null ? p.cuotaMB : null,
-                maxArchivoMB: p.maxArchivoMB != null ? p.maxArchivoMB : null,
-                extModo: ext ? ext.modo : (permiteHeredar ? 'heredar' : 'todas'),
-                extLista: ext ? ext.lista.join(', ') : '',
-            };
-        }
-
-        function politicaDesdeFormulario(d) {
-            const p = {};
-            if (d.cuotaMB != null) p.cuotaMB = Math.round(d.cuotaMB);
-            if (d.maxArchivoMB != null) p.maxArchivoMB = d.maxArchivoMB;
-            if (d.extModo && d.extModo !== 'heredar') {
-                p.extensiones = { modo: d.extModo, lista: d.extModo === 'todas' ? [] : Auth.parsearExtensiones(d.extLista).lista };
+            if (v) {
+                await cargarUsuarios();
+                render();
+                UI.toast('Cuota y límites actualizados con éxito.', { tipo: 'ok' });
             }
-            return p;
         }
 
-        async function editarPolitica(scope) {
-            const pol = Auth.obtenerPoliticas();
-            const esGlobal = scope === 'global';
-            const actual = esGlobal ? pol.global : pol.roles[scope];
-            const v = await UI.formulario({
-                titulo: esGlobal ? 'Editar política general' : `Editar rol ${Auth.ROLES[scope]}`,
-                descripcion: esGlobal ? 'Estos valores aplican a todas las cuentas salvo que un rol o una excepción los pise.' : 'Los campos vacíos heredan el valor de la política general.',
-                campos: camposPolitica(!esGlobal),
-                valores: valoresPolitica(actual, !esGlobal),
-                textoOk: 'Guardar política',
-                alEnviar: async (d) => {
-                    const nueva = politicaDesdeFormulario(d);
-                    const r = await (esGlobal ? Api.guardarPoliticaGlobal(nueva) : Api.guardarPoliticaRol(scope, nueva));
-                    return r.ok ? null : r.motivo;
-                },
+        async function suspenderUsuario(id) {
+            const ok = await UI.confirmar({
+                titulo: '¿Suspender cuenta?',
+                mensaje: 'El usuario no podrá iniciar sesión mientras su cuenta permanezca suspendida.',
+                textoOk: 'Suspender cuenta',
+                peligro: true,
             });
-            if (v) { render(); UI.toast('Política guardada.', { tipo: 'ok' }); }
+            if (!ok) return;
+            const r = await Api.cambiarEstadoUsuario(id, 'RECHAZADO');
+            if (r.ok) {
+                await cargarUsuarios();
+                await cargarEstadisticas();
+                render();
+                UI.toast('Cuenta suspendida.', { tipo: 'ok' });
+            } else {
+                UI.toast(r.motivo || 'Error al suspender cuenta.', { tipo: 'error' });
+            }
         }
 
-        async function editarExcepciones(id) {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return;
-            const base = Auth.politicaEfectiva({ ...u, excepciones: {} });
-            const resumen = `Sin excepciones, esta cuenta (rol ${Auth.ROLES[u.rol]}) tiene ${formatoTamanio(base.cuotaMB)} de espacio, ${formatoTamanio(base.maxArchivoMB)} por archivo y “${Auth.describirExtensiones(base.extensiones)}”.`;
+        async function reactivarUsuario(id) {
+            const r = await Api.cambiarEstadoUsuario(id, 'ACTIVO');
+            if (r.ok) {
+                await cargarUsuarios();
+                await cargarEstadisticas();
+                render();
+                UI.toast('Cuenta reactivada con éxito.', { tipo: 'ok' });
+            } else {
+                UI.toast(r.motivo || 'Error al reactivar cuenta.', { tipo: 'error' });
+            }
+        }
+
+        async function editarRolPolitica(idRol) {
+            const rol = (estado.roles || []).find(r => String(r.id) === String(idRol));
+            if (!rol) return;
             const v = await UI.formulario({
-                titulo: `Excepciones de ${u.nombre}`,
-                campos: [{ nombre: 'resumen', tipo: 'info', texto: resumen }, ...camposPolitica(true)],
-                valores: valoresPolitica(u.excepciones, true),
-                textoOk: 'Guardar excepciones',
+                titulo: `Editar límites de Rol ${capitalizar(rol.nombre)}`,
+                descripcion: 'Los límites configurados aplican a todos los usuarios con este rol que no tengan cuota personalizada.',
+                campos: [
+                    {
+                        nombre: 'cuotaMB', etiqueta: 'Espacio total (MB)', tipo: 'number',
+                        requerido: true, min: 1, max: 10000000,
+                        ayuda: '1 GB = 1024 MB.',
+                    },
+                    {
+                        nombre: 'maxArchivoMB', etiqueta: 'Tamaño máximo por archivo (MB)', tipo: 'number',
+                        requerido: true, min: 1, max: 1000000,
+                        validar: (v, d) => (d.cuotaMB != null && Number(v) > Number(d.cuotaMB)) ? 'No puede superar el espacio total.' : null,
+                    },
+                ],
+                valores: {
+                    cuotaMB: rol.cuota_total_mb,
+                    maxArchivoMB: rol.max_file_size_mb,
+                },
+                textoOk: 'Guardar límites',
                 alEnviar: async (d) => {
-                    const r = await Api.guardarExcepciones(id, politicaDesdeFormulario(d));
-                    return r.ok ? null : r.motivo;
+                    const r = await Api.actualizarRolAdmin(idRol, Number(d.cuotaMB), Number(d.maxArchivoMB));
+                    return r.ok ? null : (r.motivo || 'Error al actualizar límites del rol');
                 },
             });
-            if (v) { render(); UI.toast('Excepciones guardadas.', { tipo: 'ok' }); }
+            if (v) {
+                await cargarRoles();
+                render();
+                UI.toast('Límites del rol actualizados con éxito.', { tipo: 'ok' });
+            }
         }
 
         // ---------------------------------------------------------------
-        // Eventos
+        // Modal genérico para gestión de extensiones (con búsqueda y filtros)
+        // ---------------------------------------------------------------
+        async function abrirModalExtensiones({
+            titulo,
+            subtitulo,
+            catalogo = [],
+            seleccionadosIniciales = [],
+            bloqueadasRolIds = [],
+            alGuardar,
+        }) {
+            const idDlg = 'dlg-ext';
+            const seleccionados = new Set(seleccionadosIniciales);
+            const rolIdsSet = new Set(bloqueadasRolIds);
+
+            const listaOrdenada = [...catalogo].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+            const html = `
+                <div class="dc-dialog-body" style="padding: 24px; max-width: 620px;">
+                    <h2 class="dc-dialog-title" id="${idDlg}-titulo">${esc(titulo)}</h2>
+                    <p class="dc-dialog-text" style="margin-bottom: 16px;">${esc(subtitulo)}</p>
+                    
+                    <div class="ext-modal-toolbar">
+                        <div class="search search-inline" style="flex: 1; min-width: 200px;">
+                            ${iconos.lupa}
+                            <input type="search" id="inputBuscarExt" placeholder="Buscar extensión (.exe, pdf, zip)…" autocomplete="off">
+                        </div>
+                        <span class="dc-muted" style="font-size: 0.85rem; font-weight: 500;" id="badgeContadorExt">0 bloqueadas</span>
+                    </div>
+
+                    <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                        <button type="button" class="dc-btn dc-btn-ghost dc-btn-sm" id="btnMarcarTodo">Marcar todo</button>
+                        <button type="button" class="dc-btn dc-btn-ghost dc-btn-sm" id="btnDesmarcarTodo">Desmarcar todo</button>
+                        <button type="button" class="dc-btn dc-btn-ghost dc-btn-sm" id="btnMarcarPeligrosas" title="Marcar .exe, .bat, .sh, .cmd, etc.">Marcar ejecutables</button>
+                    </div>
+
+                    <div class="ext-grid" id="extContenedor">
+                        ${listaOrdenada.map(e => {
+                            const esPeligrosa = PELIGROSAS_EXT.has(e.nombre.toLowerCase());
+                            const esRol = rolIdsSet.has(e.id);
+                            const checked = seleccionados.has(e.id) || esRol;
+                            return `
+                                <label class="ext-card-item${checked ? ' is-selected' : ''}${esRol ? ' is-disabled' : ''}" data-id="${e.id}" data-nombre="${esc(e.nombre.toLowerCase())}">
+                                    <input type="checkbox" value="${e.id}" ${checked ? 'checked' : ''} ${esRol ? 'disabled' : ''} style="margin: 0;">
+                                    <span style="font-family: monospace; font-size: 0.95rem;">${esc(e.nombre)}</span>
+                                    ${esPeligrosa ? '<span class="ext-badge-danger">Riesgo</span>' : ''}
+                                    ${esRol ? '<span class="ext-badge-inherited">Rol</span>' : ''}
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                    <div id="extSinResultados" style="display: none; padding: 24px; text-align: center;" class="dc-muted">
+                        No se encontraron extensiones que coincidan con la búsqueda.
+                    </div>
+
+                    <div class="dc-dialog-actions" style="margin-top: 20px;">
+                        <button type="button" class="dc-btn dc-btn-ghost" data-cancelar>Cancelar</button>
+                        <button type="button" class="dc-btn dc-btn-primary" id="btnGuardarExt">Guardar extensiones</button>
+                    </div>
+                </div>
+            `;
+
+            const dlg = UI.dialogo(html, { ancho: 'wide' });
+            dlg.setAttribute('aria-labelledby', `${idDlg}-titulo`);
+
+            const contenedor = dlg.querySelector('#extContenedor');
+            const sinResultados = dlg.querySelector('#extSinResultados');
+            const inputBuscar = dlg.querySelector('#inputBuscarExt');
+            const badgeContador = dlg.querySelector('#badgeContadorExt');
+            const btnGuardar = dlg.querySelector('#btnGuardarExt');
+
+            const actualizarContador = () => {
+                const total = seleccionados.size + (bloqueadasRolIds.length ? bloqueadasRolIds.filter(id => !seleccionados.has(id)).length : 0);
+                badgeContador.textContent = `${total} de ${listaOrdenada.length} bloqueadas`;
+            };
+            actualizarContador();
+
+            inputBuscar.addEventListener('input', (ev) => {
+                const q = ev.target.value.toLowerCase().trim();
+                let visibles = 0;
+                contenedor.querySelectorAll('.ext-card-item').forEach(card => {
+                    const nombre = card.dataset.nombre;
+                    const coincide = !q || nombre.includes(q);
+                    card.style.display = coincide ? 'flex' : 'none';
+                    if (coincide) visibles++;
+                });
+                sinResultados.style.display = visibles === 0 ? 'block' : 'none';
+            });
+
+            contenedor.addEventListener('change', (ev) => {
+                const chk = ev.target;
+                if (!chk || chk.type !== 'checkbox') return;
+                const id = Number(chk.value);
+                const card = chk.closest('.ext-card-item');
+                if (chk.checked) {
+                    seleccionados.add(id);
+                    if (card) card.classList.add('is-selected');
+                } else {
+                    seleccionados.delete(id);
+                    if (card) card.classList.remove('is-selected');
+                }
+                actualizarContador();
+            });
+
+            dlg.querySelector('#btnMarcarTodo').addEventListener('click', () => {
+                contenedor.querySelectorAll('.ext-card-item').forEach(card => {
+                    if (card.style.display !== 'none') {
+                        const id = Number(card.dataset.id);
+                        if (!rolIdsSet.has(id)) {
+                            seleccionados.add(id);
+                            const chk = card.querySelector('input[type="checkbox"]');
+                            if (chk) chk.checked = true;
+                            card.classList.add('is-selected');
+                        }
+                    }
+                });
+                actualizarContador();
+            });
+
+            dlg.querySelector('#btnDesmarcarTodo').addEventListener('click', () => {
+                contenedor.querySelectorAll('.ext-card-item').forEach(card => {
+                    if (card.style.display !== 'none') {
+                        const id = Number(card.dataset.id);
+                        if (!rolIdsSet.has(id)) {
+                            seleccionados.delete(id);
+                            const chk = card.querySelector('input[type="checkbox"]');
+                            if (chk) chk.checked = false;
+                            card.classList.remove('is-selected');
+                        }
+                    }
+                });
+                actualizarContador();
+            });
+
+            dlg.querySelector('#btnMarcarPeligrosas').addEventListener('click', () => {
+                contenedor.querySelectorAll('.ext-card-item').forEach(card => {
+                    const nombre = card.dataset.nombre;
+                    const id = Number(card.dataset.id);
+                    if (PELIGROSAS_EXT.has(nombre) && !rolIdsSet.has(id)) {
+                        seleccionados.add(id);
+                        const chk = card.querySelector('input[type="checkbox"]');
+                        if (chk) chk.checked = true;
+                        card.classList.add('is-selected');
+                    }
+                });
+                actualizarContador();
+            });
+
+            dlg.querySelector('[data-cancelar]').addEventListener('click', () => dlg.close());
+
+            btnGuardar.addEventListener('click', async () => {
+                btnGuardar.disabled = true;
+                btnGuardar.textContent = 'Guardando…';
+                try {
+                    const ok = await alGuardar(Array.from(seleccionados));
+                    if (ok) {
+                        dlg.close();
+                    } else {
+                        btnGuardar.disabled = false;
+                        btnGuardar.textContent = 'Guardar extensiones';
+                    }
+                } catch (e) {
+                    btnGuardar.disabled = false;
+                    btnGuardar.textContent = 'Guardar extensiones';
+                }
+            });
+        }
+
+        async function gestionarExtensionesRol(idRol) {
+            const rol = (estado.roles || []).find(r => String(r.id) === String(idRol));
+            if (!rol) return;
+
+            const [resCat, resBloq] = await Promise.all([
+                Api.obtenerExtensionesAdmin(),
+                Api.obtenerExtensionesBloqueadasRol(idRol),
+            ]);
+
+            if (!resCat.ok) {
+                UI.toast(resCat.motivo || 'Error al obtener el catálogo de extensiones.', { tipo: 'error' });
+                return;
+            }
+
+            const catalogo = resCat.items || [];
+            const bloqueadas = (resBloq.items || []).map(e => e.id);
+
+            await abrirModalExtensiones({
+                titulo: `Extensiones bloqueadas — Rol ${capitalizar(rol.nombre)}`,
+                subtitulo: `Los usuarios con rol ${rol.nombre} no podrán subir archivos con las extensiones seleccionadas.`,
+                catalogo,
+                seleccionadosIniciales: bloqueadas,
+                alGuardar: async (ids) => {
+                    const r = await Api.reemplazarExtensionesBloqueadasRol(idRol, ids);
+                    if (r.ok) {
+                        UI.toast(`Extensiones bloqueadas para ${rol.nombre} actualizadas con éxito.`, { tipo: 'ok' });
+                        return true;
+                    }
+                    UI.toast(r.motivo || 'Error al guardar extensiones bloqueadas.', { tipo: 'error' });
+                    return false;
+                },
+            });
+        }
+
+        async function gestionarExtensionesUsuario(idUsuario) {
+            const u = (estado.usuarios && estado.usuarios.find(x => String(x.id) === String(idUsuario))) || Auth.obtenerUsuario(idUsuario);
+            if (!u) return;
+
+            const idRol = (estado.roles || []).find(r => r.nombre.toUpperCase() === String(u.rol).toUpperCase())?.id || 1;
+
+            const [resCat, resRol, resUser] = await Promise.all([
+                Api.obtenerExtensionesAdmin(),
+                Api.obtenerExtensionesBloqueadasRol(idRol),
+                Api.obtenerExtensionesProhibidasUsuario(idUsuario),
+            ]);
+
+            if (!resCat.ok) {
+                UI.toast(resCat.motivo || 'Error al obtener catálogo de extensiones.', { tipo: 'error' });
+                return;
+            }
+
+            const catalogo = resCat.items || [];
+            const bloqueadasRol = (resRol.items || []).map(e => e.id);
+            const prohibidasUsuario = (resUser.items || []).map(e => e.id);
+
+            await abrirModalExtensiones({
+                titulo: `Extensiones prohibidas — ${u.nombre}`,
+                subtitulo: `Definí restricciones adicionales para este usuario. Las extensiones de su rol (${u.rol}) ya aplican por defecto.`,
+                catalogo,
+                seleccionadosIniciales: prohibidasUsuario,
+                bloqueadasRolIds: bloqueadasRol,
+                alGuardar: async (ids) => {
+                    const r = await Api.reemplazarExtensionesProhibidasUsuario(idUsuario, ids);
+                    if (r.ok) {
+                        UI.toast(`Extensiones prohibidas para ${u.nombre} actualizadas con éxito.`, { tipo: 'ok' });
+                        return true;
+                    }
+                    UI.toast(r.motivo || 'Error al guardar extensiones prohibidas.', { tipo: 'error' });
+                    return false;
+                },
+            });
+        }
+
+        async function restablecerValoresRol(idUsuario) {
+            const u = (estado.usuarios && estado.usuarios.find(x => String(x.id) === String(idUsuario))) || Auth.obtenerUsuario(idUsuario);
+            if (!u) return;
+
+            const ok = await UI.confirmar({
+                titulo: `¿Restablecer a valores del rol ${capitalizar(u.rol)}?`,
+                mensaje: `Se borrarán la cuota personalizada y las prohibiciones de extensiones específicas de ${u.nombre}. La cuenta volverá a heredar automáticamente los límites y políticas de su rol.`,
+                textoOk: 'Restablecer valores',
+            });
+            if (!ok) return;
+
+            const [rCuota, rExt] = await Promise.all([
+                Api.cambiarCuota(idUsuario, null, null),
+                Api.reemplazarExtensionesProhibidasUsuario(idUsuario, []),
+            ]);
+
+            if (rCuota.ok && rExt.ok) {
+                await cargarUsuarios();
+                render();
+                UI.toast(`Valores de ${u.nombre} restablecidos al rol con éxito.`, { tipo: 'ok' });
+            } else {
+                UI.toast(rCuota.motivo || rExt.motivo || 'Error al restablecer valores.', { tipo: 'error' });
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Eventos y carga de datos
         // ---------------------------------------------------------------
         UI.enlazarTabla(content, () => (estado.seccion === 'usuarios' ? estado.tablas.usuarios : null), render);
 
-        // El buscador y el filtro de la tabla solo redibujan la tabla, así el cursor no se pierde.
         function refrescarTabla() {
             estado.tablas.usuarios.pagina = 1;
             const cont = $('#tablaUsuarios');
@@ -578,9 +962,10 @@
             temporizador = setTimeout(() => { estado.busqueda = e.target.value.trim(); refrescarTabla(); }, 150);
         });
 
-        content.addEventListener('change', (e) => {
+        content.addEventListener('change', async (e) => {
             if (e.target.id === 'filtroEstado') {
                 estado.filtroEstado = e.target.value;
+                await cargarUsuarios();
                 refrescarTabla();
             }
         });
@@ -589,62 +974,108 @@
             try {
                 const res = await Api.obtenerPendientes();
                 if (res.ok) {
-                    estado.pendientes = res.items;
+                    estado.pendientes = res.items || [];
                 }
             } catch (e) {
                 console.error('Error cargando solicitudes pendientes:', e);
             }
         }
 
+        async function cargarUsuarios() {
+            try {
+                const res = await Api.obtenerUsuariosAdmin(estado.filtroEstado);
+                if (res.ok) {
+                    estado.usuarios = res.items || [];
+                }
+            } catch (e) {
+                console.error('Error cargando usuarios:', e);
+            }
+        }
+
+        async function cargarEstadisticas() {
+            try {
+                const res = await Api.obtenerEstadisticasAdmin();
+                if (res.ok) {
+                    estado.estadisticas = res;
+                }
+            } catch (e) {
+                console.error('Error cargando estadísticas:', e);
+            }
+        }
+
+        async function cargarRoles() {
+            try {
+                const res = await Api.obtenerRolesAdmin();
+                if (res.ok) {
+                    estado.roles = res.items || [];
+                }
+            } catch (e) {
+                console.error('Error cargando roles:', e);
+            }
+        }
+
+        async function cargarTodo() {
+            await Promise.allSettled([
+                cargarPendientes(),
+                cargarUsuarios(),
+                cargarEstadisticas(),
+                cargarRoles(),
+            ]);
+            render();
+        }
+
         content.addEventListener('click', async (e) => {
-            if (e.target.closest('[data-reintentar]')) { await cargarPendientes(); render(); return; }
+            if (e.target.closest('[data-reintentar]')) { await cargarTodo(); return; }
 
             const ap = e.target.closest('[data-aprobar]');
-            if (ap) { aprobarComo(ap.dataset.aprobar, ap.dataset.rol, ap, ap.dataset.idRol || 1); return; }
+            if (ap) { await aprobarComo(ap.dataset.aprobar, ap.dataset.rol, ap, ap.dataset.idRol || 1); return; }
 
             const re = e.target.closest('[data-rechazar]');
-            if (re) { rechazar(re.dataset.rechazar); return; }
+            if (re) { await rechazar(re.dataset.rechazar); return; }
 
             const ec = e.target.closest('[data-editar-cuota]');
-            if (ec) { editarCuota(ec.dataset.editarCuota); return; }
+            if (ec) { await editarCuota(ec.dataset.editarCuota); return; }
 
-            const ed = e.target.closest('[data-editar-politica]');
-            if (ed) { editarPolitica(ed.dataset.editarPolitica); return; }
+            const er = e.target.closest('[data-editar-rol-id]');
+            if (er) { await editarRolPolitica(er.dataset.editarRolId); return; }
 
-            if (e.target.closest('#btnActualizar')) { await cargarPendientes(); render(); UI.toast('Datos actualizados.'); return; }
+            const exRol = e.target.closest('[data-extensiones-rol-id]');
+            if (exRol) { await gestionarExtensionesRol(exRol.dataset.extensionesRolId); return; }
 
-            if (e.target.closest('#btnRestaurarPol')) {
-                const okConfirm = await UI.confirmar({
-                    titulo: '¿Restaurar las políticas originales?',
-                    mensaje: 'Se pierden los cambios hechos a la política general y a los roles. Las excepciones por usuario no se modifican.',
-                    textoOk: 'Restaurar',
-                    peligro: true,
-                });
-                if (okConfirm) { const r = await Api.restaurarPoliticas(); if (r.ok) { render(); UI.toast('Políticas restauradas.', { tipo: 'ok' }); } }
+            if (e.target.closest('#btnActualizar')) {
+                await cargarTodo();
+                UI.toast('Datos actualizados.');
                 return;
             }
 
             const k = e.target.closest('[data-menu-usuario]');
             if (k) {
-                const u = Auth.obtenerUsuario(k.dataset.menuUsuario);
+                const u = (estado.usuarios && estado.usuarios.find(x => String(x.id) === String(k.dataset.menuUsuario))) || Auth.obtenerUsuario(k.dataset.menuUsuario);
                 if (!u) return;
                 const items = [];
-                if (u.rol !== 'admin') items.push({ texto: 'Cambiar rol', icono: iconos.escudo, accion: () => cambiarRol(u.id) });
-                items.push({ texto: 'Excepciones de política', icono: iconos.politicas, accion: () => editarExcepciones(u.id) });
-                if (u.rol !== 'admin') {
+                const rolStr = String(u.rol || '').toLowerCase();
+                const estStr = String(u.estado || '').toLowerCase();
+
+                if (rolStr !== 'admin') {
+                    items.push({ texto: 'Cambiar rol', icono: iconos.escudo, accion: () => cambiarRol(u.id) });
+                }
+                items.push({ texto: 'Editar cuota', icono: iconos.politicas, accion: () => editarCuota(u.id) });
+                items.push({ texto: 'Extensiones prohibidas', icono: iconos.escudo, accion: () => gestionarExtensionesUsuario(u.id) });
+                items.push({ texto: 'Restablecer valores del rol', icono: iconos.restaurar, accion: () => restablecerValoresRol(u.id) });
+
+                if (rolStr !== 'admin') {
                     items.push({ separador: true });
-                    if (u.estado !== 'aprobado') items.push({ texto: 'Aprobar cuenta', icono: iconos.check, accion: () => aprobar(u.id) });
-                    if (u.estado === 'aprobado') items.push({ texto: 'Suspender cuenta', icono: iconos.cerrar, peligro: true, accion: () => rechazar(u.id, true) });
-                    else if (u.estado === 'pendiente') items.push({ texto: 'Rechazar cuenta', icono: iconos.cerrar, peligro: true, accion: () => rechazar(u.id) });
+                    if (['activo', 'aprobado'].includes(estStr)) {
+                        items.push({ texto: 'Suspender cuenta', icono: iconos.cerrar, peligro: true, accion: () => suspenderUsuario(u.id) });
+                    } else if (['rechazado', 'suspendido'].includes(estStr)) {
+                        items.push({ texto: 'Reactivar cuenta', icono: iconos.check, accion: () => reactivarUsuario(u.id) });
+                    }
                 }
                 UI.menuContextual(k, items);
             }
         });
 
-        Drive.asegurar(admin);
-        cargarPendientes().then(() => {
-            render();
-        });
+        cargarTodo();
     </script>
 
 </body>
