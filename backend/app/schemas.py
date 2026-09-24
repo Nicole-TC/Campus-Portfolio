@@ -28,6 +28,12 @@ class PerfilOut(BaseModel):
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
 
+
+class CambiarPasswordIn(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
 class CarpetaCrear(BaseModel):
     nombre: str
     carpeta_padre_id: int | None = None
