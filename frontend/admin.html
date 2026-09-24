@@ -67,6 +67,7 @@
             seccion: 'usuarios',
             busqueda: '',
             filtroEstado: 'todos',
+            pendientes: null,
             tablas: {
                 usuarios: { clave: 'nombre', dir: 'asc', pagina: 1 },
             },
@@ -143,10 +144,13 @@
         function estadisticas() {
             const usuarios = Auth.listarUsuarios();
             const hace30 = Date.now() - 30 * 86400000;
+            const cantPendientes = estado.pendientes !== null 
+                ? estado.pendientes.length 
+                : usuarios.filter(u => u.estado === 'pendiente').length;
             return {
                 total: usuarios.length,
                 nuevos: usuarios.filter(u => Date.parse(u.creado) >= hace30).length,
-                pendientes: usuarios.filter(u => u.estado === 'pendiente').length,
+                pendientes: cantPendientes,
                 usoMB: usuarios.reduce((a, u) => a + Drive.usoMB(u.id), 0),
             };
         }
@@ -187,7 +191,8 @@
         }
 
         function htmlPendientes() {
-            const pendientes = Auth.obtenerPendientes().sort((a, b) => Date.parse(a.creado) - Date.parse(b.creado));
+            const pendientes = (estado.pendientes !== null ? estado.pendientes : Auth.obtenerPendientes())
+                .sort((a, b) => Date.parse(a.fecha_registro || a.creado || 0) - Date.parse(b.fecha_registro || b.creado || 0));
             return `
       <section aria-labelledby="tPend">
         <div class="section-head">
@@ -200,13 +205,13 @@
           <article class="req-row">
             <div class="req-user">
               ${avatar(u)}
-              <div class="cell-stack"><strong>${esc(u.nombre)}</strong><span>${esc(u.email)}</span></div>
+              <div class="cell-stack"><strong>${esc(`${u.nombre} ${u.apellido || ''}`.trim())}</strong><span>${esc(u.email)}</span></div>
             </div>
             <div class="req-field"><span class="req-label">DNI</span><span>${esc(Auth.formatearDNI(u.dni) || '—')}</span></div>
-            <div class="req-field"><span class="req-label">Rol solicitado</span>${UI.badgeRol(u.rolSolicitado)}</div>
+            <div class="req-field"><span class="req-label">Rol solicitado</span>${UI.badgeRol((u.rol_solicitado || u.rolSolicitado || 'alumno').toLowerCase())}</div>
             <div class="req-actions">
-              <button type="button" class="dc-btn dc-btn-soft dc-btn-sm" data-aprobar="${esc(u.id)}" data-rol="alumno">${iconos.check}Aprobar como Alumno</button>
-              <button type="button" class="dc-btn dc-btn-violet dc-btn-sm" data-aprobar="${esc(u.id)}" data-rol="docente">Aprobar como Docente</button>
+              <button type="button" class="dc-btn dc-btn-soft dc-btn-sm" data-aprobar="${esc(u.id)}" data-rol="alumno" data-id-rol="1">${iconos.check}Aprobar como Alumno</button>
+              <button type="button" class="dc-btn dc-btn-violet dc-btn-sm" data-aprobar="${esc(u.id)}" data-rol="docente" data-id-rol="2">Aprobar como Docente</button>
               <button type="button" class="dc-btn dc-btn-outline-danger dc-btn-sm" data-rechazar="${esc(u.id)}">Rechazar</button>
             </div>
           </article>`).join('')}</div>`
@@ -354,15 +359,29 @@
         }
 
         // ---------------------------------------------------------------
-        // Acciones sobre cuentas
+        // Acciones sobre cuentas (conectadas a FastAPI)
         // ---------------------------------------------------------------
-        async function aprobarComo(id, rol, boton) {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return;
+        async function aprobarComo(id, rol, boton, idRol = 1) {
             const fila = boton.closest('.req-row');
             fila.querySelectorAll('button').forEach(b => { b.disabled = true; });
-            const ok = resultado(await Api.cambiarEstadoUsuario(id, 'aprobado', { rol }), `Cuenta de ${u.nombre} aprobada como ${Auth.ROLES[rol]}.`);
-            if (!ok) fila.querySelectorAll('button').forEach(b => { b.disabled = false; });
+            
+            const r = await Api.aprobarUsuario(id, idRol);
+            if (!r.ok) {
+                // Fallback local si el endpoint no está disponible
+                const u = Auth.obtenerUsuario(id);
+                if (u) {
+                    const ok = resultado(await Api.cambiarEstadoUsuario(id, 'aprobado', { rol }), `Cuenta de ${u.nombre} aprobada.`);
+                    if (!ok) fila.querySelectorAll('button').forEach(b => { b.disabled = false; });
+                    return;
+                }
+                UI.toast(r.motivo || 'Error al aprobar la cuenta.', { tipo: 'error' });
+                fila.querySelectorAll('button').forEach(b => { b.disabled = false; });
+                return;
+            }
+
+            UI.toast(`Cuenta aprobada con éxito.`, { tipo: 'ok' });
+            await cargarPendientes();
+            render();
         }
 
         // Para reactivar una cuenta rechazada o suspendida (pide el rol final).
@@ -381,10 +400,8 @@
         }
 
         async function rechazar(id, suspender = false) {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return;
             const v = await UI.formulario({
-                titulo: `${suspender ? 'Suspender' : 'Rechazar'} a ${u.nombre}`,
+                titulo: `${suspender ? 'Suspender' : 'Rechazar'} cuenta`,
                 descripcion: 'La persona va a ver este motivo cuando intente iniciar sesión.',
                 campos: [
                     { nombre: 'motivo', etiqueta: 'Motivo', tipo: 'select', requerido: true, opciones: Auth.MOTIVOS_RECHAZO.map(m => ({ valor: m.valor, texto: m.texto })) },
@@ -397,13 +414,21 @@
                 textoOk: suspender ? 'Suspender cuenta' : 'Rechazar cuenta',
                 peligro: true,
                 alEnviar: async (d) => {
+                    const r = await Api.rechazarUsuario(id);
+                    if (r.ok) return null;
+
+                    // Fallback local
                     const base = d.motivo === 'otro' ? '' : Auth.MOTIVOS_RECHAZO.find(m => m.valor === d.motivo).texto;
                     const texto = [base, d.detalle].filter(Boolean).join(' ');
-                    const r = await Api.cambiarEstadoUsuario(id, 'rechazado', { motivo: texto });
-                    return r.ok ? null : r.motivo;
+                    const rLocal = await Api.cambiarEstadoUsuario(id, 'rechazado', { motivo: texto });
+                    return rLocal.ok ? null : (r.motivo || rLocal.motivo);
                 },
             });
-            if (v) { render(); UI.toast(`Cuenta de ${u.nombre} ${suspender ? 'suspendida' : 'rechazada'}.`, { tipo: 'ok' }); }
+            if (v) { 
+                await cargarPendientes();
+                render(); 
+                UI.toast(`Cuenta ${suspender ? 'suspendida' : 'rechazada'}.`, { tipo: 'ok' }); 
+            }
         }
 
         async function cambiarRol(id) {
@@ -560,11 +585,22 @@
             }
         });
 
+        async function cargarPendientes() {
+            try {
+                const res = await Api.obtenerPendientes();
+                if (res.ok) {
+                    estado.pendientes = res.items;
+                }
+            } catch (e) {
+                console.error('Error cargando solicitudes pendientes:', e);
+            }
+        }
+
         content.addEventListener('click', async (e) => {
-            if (e.target.closest('[data-reintentar]')) { render(); return; }
+            if (e.target.closest('[data-reintentar]')) { await cargarPendientes(); render(); return; }
 
             const ap = e.target.closest('[data-aprobar]');
-            if (ap) { aprobarComo(ap.dataset.aprobar, ap.dataset.rol, ap); return; }
+            if (ap) { aprobarComo(ap.dataset.aprobar, ap.dataset.rol, ap, ap.dataset.idRol || 1); return; }
 
             const re = e.target.closest('[data-rechazar]');
             if (re) { rechazar(re.dataset.rechazar); return; }
@@ -575,7 +611,7 @@
             const ed = e.target.closest('[data-editar-politica]');
             if (ed) { editarPolitica(ed.dataset.editarPolitica); return; }
 
-            if (e.target.closest('#btnActualizar')) { render(); UI.toast('Datos actualizados.'); return; }
+            if (e.target.closest('#btnActualizar')) { await cargarPendientes(); render(); UI.toast('Datos actualizados.'); return; }
 
             if (e.target.closest('#btnRestaurarPol')) {
                 const okConfirm = await UI.confirmar({
@@ -606,7 +642,9 @@
         });
 
         Drive.asegurar(admin);
-        render();
+        cargarPendientes().then(() => {
+            render();
+        });
     </script>
 
 </body>
