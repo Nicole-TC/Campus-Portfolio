@@ -147,13 +147,14 @@ def actualizar_cuota(
 ):
     """Setea o limpia los overrides de cuota del usuario.
 
-    Mandar `null` en un campo devuelve ese valor al que corresponde por rol.
+    Si el campo no viene en el JSON, no se toca. `null` vuelve al valor del rol.
     Si la cuota nueva es menor que el uso actual, rechaza con 400.
     """
     return admin_service.actualizar_cuota_usuario(
         usuario_id,
         payload.cuota_personalizada_mb,
         payload.max_file_personalizado_mb,
+        payload.model_fields_set,
         db,
     )
 
