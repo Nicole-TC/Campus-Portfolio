@@ -1,13 +1,16 @@
+import secrets
 from typing import Optional
 
-from fastapi import Cookie, Depends, Query
+from fastapi import Cookie, Depends, Form, Header, Query
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.models import Usuario
 from app.security import decodificar_token
-from app.excepciones import ErrorNoAutorizado, ErrorProhibido
+from app.excepciones import ErrorNoAutorizado, ErrorNoEncontrado, ErrorProhibido
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
@@ -72,3 +75,38 @@ def get_current_user_flexible(
     if not token:
         raise ErrorNoAutorizado("Falta el token de autenticación")
     return _usuario_desde_token(token, db)
+
+
+def resolver_usuario_subida(
+    token: Optional[str] = Depends(oauth2_scheme),
+    x_bot_token: Optional[str] = Header(None),
+    chat_id: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    """Usuario de POST /archivos: JWT de la web, o el bot con el chat vinculado.
+
+    El bot no tiene la contraseña del alumno. Manda X-Bot-Token y el chat_id;
+    la subida sigue el mismo endpoint y las mismas validaciones.
+    """
+    if token:
+        return _usuario_desde_token(token, db)
+
+    if not x_bot_token:
+        raise ErrorNoAutorizado("Falta el token de autenticación")
+
+    if not settings.TELEGRAM_TOKEN or not secrets.compare_digest(
+        x_bot_token.encode(), settings.TELEGRAM_TOKEN.encode()
+    ):
+        raise ErrorNoAutorizado("Token del bot inválido")
+
+    if chat_id is None:
+        raise ErrorNoAutorizado("Falta el chat de Telegram")
+
+    usuario = db.scalar(select(Usuario).where(Usuario.telegram_id == chat_id))
+    if usuario is None:
+        raise ErrorNoEncontrado("El chat no está vinculado a ninguna cuenta")
+
+    if usuario.estado.nombre != ESTADO_ACTIVO:
+        raise ErrorProhibido("Cuenta no activada")
+
+    return usuario
