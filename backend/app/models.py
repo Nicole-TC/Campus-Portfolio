@@ -126,6 +126,10 @@ class Archivo(Base):
     fecha_eliminacion: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     fecha_subida: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
+    # Relación con el catálogo de extensiones: permite acceder a `archivo.extension.nombre`.
+    extension: Mapped["Extension"] = relationship()
+
+
 class Permiso(Base):
     __tablename__ = "permisos"
 
@@ -142,4 +146,3 @@ class Permiso(Base):
     permiso: Mapped[Optional[str]] = mapped_column(String(20))
 
     fecha_compartido: Mapped[Optional[datetime]]
-

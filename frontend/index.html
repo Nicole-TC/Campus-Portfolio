@@ -124,6 +124,18 @@
     </div>
   </div>
 
+  <div class="modal fade" id="modalVer" tabindex="-1" aria-labelledby="verTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="verTitulo">Archivo</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" id="verCuerpo"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/http.js"></script>
@@ -261,7 +273,7 @@
       if (estado.tablas[seccion]) estado.tablas[seccion].pagina = 1;
       try { history.replaceState(null, '', '#' + seccion); } catch { /* ignorar */ }
       cerrarSidebar();
-      if (seccion === 'compartidos' && !carpetaId) cargarCompartidos(); 
+      if (seccion === 'compartidos' && !carpetaId) cargarCompartidos();
       else if (seccion === 'papelera') cargarPapelera();
       else if (seccion === 'cuenta') cargarPerfil();
       else if (seccion === 'archivos') cargarContenido(estado.carpetaId);
@@ -919,9 +931,9 @@
         textoOk: 'Crear carpeta',
         alEnviar: async (datos) => { const r = await Api.crearCarpeta(d.padreId, datos.nombre); return r.ok ? null : r.motivo; },
       });
-      if (v) { 
-        await cargarContenido(estado.carpetaId); 
-        UI.toast('Carpeta creada.', { tipo: 'ok' }); 
+      if (v) {
+        await cargarContenido(estado.carpetaId);
+        UI.toast('Carpeta creada.', { tipo: 'ok' });
       }
     }
 
@@ -1141,6 +1153,30 @@
       resultado(await Api.descargar(id), 'Descarga simulada iniciada.', { redibujar: false });
     }
 
+    function urlVer(id) {
+      const token = Auth.obtenerToken() || '';
+      return `api/archivos/${id}/ver?token=${encodeURIComponent(token)}`;
+    }
+
+    function verArchivo(id) {
+      const n = Drive.nodo(id);
+      if (!n || n.tipo === 'carpeta') return;
+      const ext = (n.nombre.split('.').pop() || '').toLowerCase();
+      const url = urlVer(id);
+      const titulo = document.getElementById('verTitulo');
+      const cuerpo = document.getElementById('verCuerpo');
+      titulo.textContent = n.nombre;
+      if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
+        cuerpo.innerHTML = `<img src="${url}" class="img-fluid" alt="${esc(n.nombre)}">`;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
+      } else if (['pdf', 'txt', 'csv'].includes(ext)) {
+        cuerpo.innerHTML = `<iframe src="${url}" width="100%" height="500px" title="${esc(n.nombre)}"></iframe>`;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
+      } else {
+        window.location.assign(url);
+      }
+    }
+
     async function accionQuitarCompartido(id) {
       const n = Drive.nodo(id);
       const shareId = Drive.comparticionDe(usuario.id, id);
@@ -1239,7 +1275,7 @@
       try {
         const modalInst = bootstrap.Modal.getInstance(sh.modal);
         if (modalInst) modalInst.hide();
-      } catch (err) {}
+      } catch (err) { }
     });
 
     sh.lista.addEventListener('change', async (e) => {
@@ -1266,6 +1302,7 @@
       const acc = Drive.acciones(usuario.id, n);
       const items = [];
       if (n.tipo === 'carpeta') items.push({ texto: 'Abrir', icono: iconos.abrir, accion: () => abrirCarpeta(n.id) });
+      else items.push({ texto: 'Ver', icono: iconos.abrir, accion: () => verArchivo(n.id) });
       if (acc.includes('descargar')) items.push({ texto: 'Descargar', icono: iconos.descargar, accion: () => accionDescargar(n.id) });
       if (acc.includes('renombrar')) items.push({ texto: 'Renombrar', icono: iconos.editar, accion: () => accionRenombrar(n.id) });
       if (acc.includes('mover')) items.push({ texto: 'Mover a…', icono: iconos.mover, accion: () => accionMover(n.id) });
@@ -1474,7 +1511,7 @@
       }
     });
 
-    if (estado.seccion === 'compartidos') cargarCompartidos(); 
+    if (estado.seccion === 'compartidos') cargarCompartidos();
     else if (estado.seccion === 'papelera') cargarPapelera();
     else if (estado.seccion === 'cuenta') cargarPerfil();
     else if (estado.seccion === 'archivos') cargarContenido(estado.carpetaId);
