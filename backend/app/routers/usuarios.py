@@ -11,6 +11,7 @@ from app.services.perfil import (
     bytes_usados,
     cuota_y_limite_mb,
     extensiones_permitidas,
+    extensiones_bloqueadas,
 )
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
@@ -43,6 +44,7 @@ def mi_perfil(
         limites=LimitesOut(
             tamano_max_archivo_bytes=max_archivo_mb * BYTES_POR_MB,
             extensiones_permitidas=extensiones_permitidas(usuario, db),
+            extensiones_bloqueadas=extensiones_bloqueadas(usuario, db),
         ),
     )
 
