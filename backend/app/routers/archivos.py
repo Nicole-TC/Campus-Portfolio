@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user, get_current_user_flexible, resolver_usuario_subida
 from app.models import Archivo, Carpeta, Extension, Permiso, Usuario
-from app.schemas import ArchivoPapeleraOut
+from app.schemas import ArchivoPapeleraOut, ElementoMover, ElementoRenombrar
 from app.services.papelera import (
     eliminar_definitivamente,
     enviar_a_papelera,
@@ -186,62 +186,89 @@ async def subir_archivo(
 @router.get("")
 def listar_archivos(
     carpeta_id: int | None = None,
+    q: str | None = None,
     pagina: int = Query(1, ge=1),
     limite: int = Query(20, ge=1, le=100),
     usuario: Usuario = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Si se pidió una carpeta, revisar que pertenezca al usuario
-    if carpeta_id is not None:
-        carpeta = db.scalar(
-            select(Carpeta).where(
-                Carpeta.id == carpeta_id,
-                Carpeta.usuario_id == usuario.id,
-                Carpeta.en_papelera.is_(False),
-            )
-        )
-
-        if carpeta is None:
-            raise HTTPException(
-                status_code=404,
-                detail="La carpeta no existe",
-            )
-    else:
-        # Si estamos en la raíz y el usuario aún no tiene carpetas, sembramos las iniciales de su rol
-        try:
-            from app.services.admin import sembrar_carpetas_iniciales
-            nombre_rol = usuario.rol.nombre if usuario.rol else ""
-            sembrar_carpetas_iniciales(usuario.id, nombre_rol, db)
-        except Exception:
-            pass
-
     offset = (pagina - 1) * limite
 
-    # Carpetas de la ubicación actual
-    carpetas = db.scalars(
-        select(Carpeta)
-        .where(
-            Carpeta.usuario_id == usuario.id,
-            Carpeta.carpeta_padre_id == carpeta_id,
-            Carpeta.en_papelera.is_(False),
-        )
-        .order_by(Carpeta.nombre)
-        .offset(offset)
-        .limit(limite)
-    ).all()
+    if q and q.strip():
+        termino = f"%{q.strip()}%"
+        carpetas = db.scalars(
+            select(Carpeta)
+            .where(
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.nombre.ilike(termino),
+                Carpeta.en_papelera.is_(False),
+            )
+            .order_by(Carpeta.nombre)
+            .offset(offset)
+            .limit(limite)
+        ).all()
 
-    # Archivos de la ubicación actual
-    archivos = db.scalars(
-        select(Archivo)
-        .where(
-            Archivo.usuario_id == usuario.id,
-            Archivo.carpeta_id == carpeta_id,
-            Archivo.en_papelera.is_(False),
-        )
-        .order_by(Archivo.id.desc())
-        .offset(offset)
-        .limit(limite)
-    ).all()
+        archivos = db.scalars(
+            select(Archivo)
+            .where(
+                Archivo.usuario_id == usuario.id,
+                Archivo.nombre_original.ilike(termino),
+                Archivo.en_papelera.is_(False),
+            )
+            .order_by(Archivo.id.desc())
+            .offset(offset)
+            .limit(limite)
+        ).all()
+    else:
+        # Si se pidió una carpeta, revisar que pertenezca al usuario
+        if carpeta_id is not None:
+            carpeta = db.scalar(
+                select(Carpeta).where(
+                    Carpeta.id == carpeta_id,
+                    Carpeta.usuario_id == usuario.id,
+                    Carpeta.en_papelera.is_(False),
+                )
+            )
+
+            if carpeta is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="La carpeta no existe",
+                )
+        else:
+            # Si estamos en la raíz y el usuario aún no tiene carpetas, sembramos las iniciales de su rol
+            try:
+                from app.services.admin import sembrar_carpetas_iniciales
+                nombre_rol = usuario.rol.nombre if usuario.rol else ""
+                sembrar_carpetas_iniciales(usuario.id, nombre_rol, db)
+            except Exception:
+                pass
+
+        # Carpetas de la ubicación actual
+        carpetas = db.scalars(
+            select(Carpeta)
+            .where(
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.carpeta_padre_id == carpeta_id,
+                Carpeta.en_papelera.is_(False),
+            )
+            .order_by(Carpeta.nombre)
+            .offset(offset)
+            .limit(limite)
+        ).all()
+
+        # Archivos de la ubicación actual
+        archivos = db.scalars(
+            select(Archivo)
+            .where(
+                Archivo.usuario_id == usuario.id,
+                Archivo.carpeta_id == carpeta_id,
+                Archivo.en_papelera.is_(False),
+            )
+            .order_by(Archivo.id.desc())
+            .offset(offset)
+            .limit(limite)
+        ).all()
 
     from sqlalchemy import func
 
@@ -349,11 +376,30 @@ def listar_papelera(
         .order_by(Archivo.fecha_eliminacion.desc())
     ).all()
 
+    carpetas = db.scalars(
+        select(Carpeta)
+        .where(
+            Carpeta.usuario_id == usuario.id,
+            Carpeta.en_papelera.is_(True),
+        )
+        .order_by(Carpeta.nombre)
+    ).all()
+
     return {
+        "carpetas": [
+            {
+                "id": c.id,
+                "nombre": c.nombre,
+                "tipo": "carpeta",
+                "fecha_eliminacion": c.fecha_creacion,
+            }
+            for c in carpetas
+        ],
         "archivos": [
             {
                 "id": a.id,
                 "nombre": a.nombre_original,
+                "tipo": "archivo",
                 "tamano_bytes": a.tamano_bytes,
                 "fecha_eliminacion": a.fecha_eliminacion,
             }
@@ -431,7 +477,18 @@ def vaciar_papelera(
     ).all()
     for archivo in archivos:
         eliminar_definitivamente(archivo, db)
-    return {"mensaje": "Papelera vaciada con éxito", "eliminados": len(archivos)}
+
+    carpetas = db.scalars(
+        select(Carpeta).where(
+            Carpeta.usuario_id == usuario.id,
+            Carpeta.en_papelera.is_(True),
+        )
+    ).all()
+    for carpeta in carpetas:
+        db.delete(carpeta)
+    db.commit()
+
+    return {"mensaje": "Papelera vaciada con éxito", "eliminados": len(archivos) + len(carpetas)}
 
 
 @router.delete("/{archivo_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -456,6 +513,7 @@ def listar_compartidos(
     resultados = db.execute(
         select(
             Archivo,
+            Permiso.id.label("permiso_id"),
             Permiso.fecha_compartido,
             Usuario.nombre.label("propietario_nombre"),
             Usuario.apellido.label("propietario_apellido"),
@@ -474,6 +532,7 @@ def listar_compartidos(
         "archivos": [
             {
                 "id": fila.Archivo.id,
+                "permiso_id": fila.permiso_id,
                 "nombre": fila.Archivo.nombre_original,
                 "tamano_bytes": fila.Archivo.tamano_bytes,
                 "fecha_subida": fila.Archivo.fecha_subida,
@@ -484,4 +543,151 @@ def listar_compartidos(
             }
             for fila in resultados
         ]
+    }
+
+
+@router.patch("/{archivo_id}/renombrar")
+def renombrar_archivo(
+    archivo_id: int,
+    datos: ElementoRenombrar,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    archivo = obtener_archivo_propio(archivo_id, usuario, db)
+    if archivo.en_papelera:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede renombrar un archivo que está en la papelera",
+        )
+
+    nuevo_nombre = datos.nombre.strip()
+    if not nuevo_nombre:
+        raise HTTPException(
+            status_code=400,
+            detail="El archivo debe tener un nombre",
+        )
+
+    # Extension original y nueva
+    ext_original = Path(archivo.nombre_original).suffix.lower()
+    ext_nueva = Path(nuevo_nombre).suffix.lower()
+
+    if not ext_nueva:
+        # Si el usuario no especificó extensión, conservamos la original
+        nuevo_nombre = f"{nuevo_nombre}{ext_original}"
+        extension_id = archivo.id_extension
+    else:
+        permitidas = {
+            ext.lower()
+            for ext in extensiones_permitidas(usuario, db)
+        }
+        if ext_nueva not in permitidas:
+            raise HTTPException(
+                status_code=400,
+                detail=f"La extensión {ext_nueva} no está permitida",
+            )
+        ext_obj = db.scalar(
+            select(Extension).where(Extension.nombre == ext_nueva)
+        )
+        if ext_obj is None:
+            raise HTTPException(
+                status_code=400,
+                detail="La extensión no está registrada en el sistema",
+            )
+        extension_id = ext_obj.id
+
+    # Comprobar colisión en la misma carpeta
+    colision = db.scalar(
+        select(Archivo).where(
+            Archivo.usuario_id == usuario.id,
+            Archivo.carpeta_id == archivo.carpeta_id,
+            Archivo.nombre_original == nuevo_nombre,
+            Archivo.en_papelera.is_(False),
+            Archivo.id != archivo.id,
+        )
+    )
+    if colision is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un archivo con ese nombre en esta carpeta",
+        )
+
+    archivo.nombre_original = nuevo_nombre
+    archivo.id_extension = extension_id
+    db.commit()
+    db.refresh(archivo)
+
+    return {
+        "ok": True,
+        "id": archivo.id,
+        "nombre": archivo.nombre_original,
+        "mensaje": "Archivo renombrado correctamente",
+    }
+
+
+@router.patch("/{archivo_id}/mover")
+def mover_archivo(
+    archivo_id: int,
+    datos: ElementoMover,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    archivo = obtener_archivo_propio(archivo_id, usuario, db)
+    if archivo.en_papelera:
+        raise HTTPException(
+            status_code=400,
+            detail="No se puede mover un archivo que está en la papelera",
+        )
+
+    nueva_carpeta_id = datos.carpeta_destino_id
+
+    # Si se especificó una carpeta destino, validar que exista, sea del usuario y no esté en papelera
+    if nueva_carpeta_id is not None:
+        carpeta = db.scalar(
+            select(Carpeta).where(
+                Carpeta.id == nueva_carpeta_id,
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.en_papelera.is_(False),
+            )
+        )
+        if carpeta is None:
+            raise HTTPException(
+                status_code=404,
+                detail="La carpeta de destino no existe",
+            )
+
+    # Validar si ya está en esa misma carpeta
+    if archivo.carpeta_id == nueva_carpeta_id:
+        return {
+            "ok": True,
+            "id": archivo.id,
+            "carpeta_id": archivo.carpeta_id,
+            "mensaje": "El archivo ya se encuentra en la carpeta destino",
+        }
+
+    # Validar colisión en la carpeta destino
+    colision = db.scalar(
+        select(Archivo).where(
+            Archivo.usuario_id == usuario.id,
+            Archivo.carpeta_id == nueva_carpeta_id,
+            Archivo.nombre_original == archivo.nombre_original,
+            Archivo.en_papelera.is_(False),
+            Archivo.id != archivo.id,
+        )
+    )
+    if colision is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe un archivo con el mismo nombre en la carpeta destino",
+        )
+
+    archivo.carpeta_id = nueva_carpeta_id
+    db.commit()
+    db.refresh(archivo)
+
+    return {
+        "ok": True,
+        "id": archivo.id,
+        "nombre": archivo.nombre_original,
+        "carpeta_id": archivo.carpeta_id,
+        "mensaje": "Archivo movido correctamente",
     }
