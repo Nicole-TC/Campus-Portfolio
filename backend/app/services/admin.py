@@ -19,6 +19,7 @@ from app.models import (
     UsuarioExtensionProhibida,
 )
 from app.services.perfil import BYTES_POR_MB, bytes_usados, cuota_y_limite_mb
+from app.services.telegram import avisar_resolucion
 
 ESTADO_PENDIENTE = "PENDIENTE"
 ESTADO_ACTIVO = "ACTIVO"
@@ -156,12 +157,14 @@ def aprobar_usuario(usuario_id: int, id_rol: int, db: Session) -> dict:
 
     usuario.id_rol = id_rol
     usuario.id_estado = _estado_por_nombre(ESTADO_ACTIVO, db).id
+    chat_id = usuario.telegram_id
     db.commit()
     db.refresh(usuario)
+    avisar_resolucion(chat_id, aprobado=True)
     return _a_resuelto_out(usuario)
 
 
-def rechazar_usuario(usuario_id: int, db: Session) -> dict:
+def rechazar_usuario(usuario_id: int, db: Session, motivo: Optional[str] = None) -> dict:
     """Rechaza una cuenta: cambia el estado a RECHAZADO.
 
     Reglas:
@@ -185,8 +188,10 @@ def rechazar_usuario(usuario_id: int, db: Session) -> dict:
         )
 
     usuario.id_estado = _estado_por_nombre(ESTADO_RECHAZADO, db).id
+    chat_id = usuario.telegram_id
     db.commit()
     db.refresh(usuario)
+    avisar_resolucion(chat_id, aprobado=False, motivo=motivo)
     return _a_resuelto_out(usuario)
 
 

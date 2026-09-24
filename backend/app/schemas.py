@@ -111,6 +111,11 @@ class AprobarUsuarioIn(BaseModel):
     id_rol: int
 
 
+class RechazarUsuarioIn(BaseModel):
+    """Motivo opcional. No se guarda en la base: solo se manda por Telegram."""
+    motivo: Optional[str] = None
+
+
 class UsuarioResueltoOut(UsuarioPendienteOut):
     """Usuario ya aprobado/rechazado, con su rol y estado finales."""
     rol: str

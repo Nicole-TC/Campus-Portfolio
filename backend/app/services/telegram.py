@@ -1,10 +1,16 @@
 """Lógica de negocio de la vinculación de cuentas con Telegram."""
-from typing import List
+import json
+import logging
+import urllib.request
+from typing import List, Optional
 
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.models import Archivo, Usuario
+
+logger = logging.getLogger(__name__)
 
 
 def vincular_chat(dni: str, chat_id: int, db: Session) -> bool:
@@ -22,6 +28,32 @@ def vincular_chat(dni: str, chat_id: int, db: Session) -> bool:
     encontrado = resultado.first() is not None
     db.commit()
     return encontrado
+
+
+def avisar_resolucion(chat_id: Optional[int], aprobado: bool, motivo: Optional[str] = None) -> None:
+    """Avisa por Telegram si la cuenta fue aceptada o rechazada.
+
+    Si no hay chat vinculado o el envío falla, no deshace la aprobación.
+    """
+    if not chat_id or not settings.TELEGRAM_TOKEN:
+        return
+
+    if aprobado:
+        texto = "✅ ¡Tu registro fue aprobado! Ya podés ingresar a CampusCloud."
+    else:
+        texto = "❌ Tu registro fue rechazado."
+        if motivo and motivo.strip():
+            texto += f"\nMotivo: {motivo.strip()}"
+
+    url = f"https://api.telegram.org/bot{settings.TELEGRAM_TOKEN}/sendMessage"
+    cuerpo = json.dumps({"chat_id": chat_id, "text": texto}).encode()
+    pedido = urllib.request.Request(
+        url, data=cuerpo, headers={"Content-Type": "application/json"}
+    )
+    try:
+        urllib.request.urlopen(pedido, timeout=10)
+    except Exception as e:
+        logger.warning("No se pudo avisar al chat %s: %s", chat_id, e)
 
 
 def ultimos_archivos_de_chat(
