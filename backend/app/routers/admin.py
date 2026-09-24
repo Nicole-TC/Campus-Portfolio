@@ -6,13 +6,14 @@ G-14: gestión de cuotas, cambio de rol y extensiones prohibidas/bloqueadas.
 Todos los endpoints requieren rol ADMIN: la dependencia `require_admin`
 está aplicada a nivel de router para no repetirla en cada función.
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.dependencies import require_admin
 from app.schemas import (
     AprobarUsuarioIn,
+    RechazarUsuarioIn,
     CambioRolIn,
     CatalogoOut,
     CuotaUsuarioIn,
@@ -91,13 +92,18 @@ def aprobar(
 
 
 @router.patch("/usuarios/{usuario_id}/rechazar", response_model=UsuarioResueltoOut)
-def rechazar(usuario_id: int, db: Session = Depends(get_db)):
+def rechazar(
+    usuario_id: int,
+    payload: RechazarUsuarioIn = Body(default_factory=RechazarUsuarioIn),
+    db: Session = Depends(get_db),
+):
     """Rechaza una cuenta: cambia el estado a RECHAZADO.
 
     El usuario rechazado no podrá iniciar sesión (lo valida get_current_user
-    al exigir estado ACTIVO).
+    al exigir estado ACTIVO). Si hay Telegram vinculado, se le avisa.
+    El motivo es opcional y solo viaja en ese mensaje.
     """
-    return admin_service.rechazar_usuario(usuario_id, db)
+    return admin_service.rechazar_usuario(usuario_id, db, motivo=payload.motivo)
 
 
 # ===============================================================
@@ -141,13 +147,14 @@ def actualizar_cuota(
 ):
     """Setea o limpia los overrides de cuota del usuario.
 
-    Mandar `null` en un campo devuelve ese valor al que corresponde por rol.
+    Si el campo no viene en el JSON, no se toca. `null` vuelve al valor del rol.
     Si la cuota nueva es menor que el uso actual, rechaza con 400.
     """
     return admin_service.actualizar_cuota_usuario(
         usuario_id,
         payload.cuota_personalizada_mb,
         payload.max_file_personalizado_mb,
+        payload.model_fields_set,
         db,
     )
 

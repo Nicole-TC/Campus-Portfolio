@@ -111,6 +111,11 @@ class AprobarUsuarioIn(BaseModel):
     id_rol: int
 
 
+class RechazarUsuarioIn(BaseModel):
+    """Motivo opcional. No se guarda en la base: solo se manda por Telegram."""
+    motivo: Optional[str] = None
+
+
 class UsuarioResueltoOut(UsuarioPendienteOut):
     """Usuario ya aprobado/rechazado, con su rol y estado finales."""
     rol: str
@@ -124,7 +129,7 @@ class UsuarioResueltoOut(UsuarioPendienteOut):
 class CuotaUsuarioIn(BaseModel):
     """Body para setear/limpiar overrides de cuota por usuario.
 
-    Mandar `null` en un campo lo devuelve al valor que hereda del rol.
+    Si el campo no viene, se deja como está. `null` vuelve al valor del rol.
     """
     cuota_personalizada_mb: Optional[int] = None
     max_file_personalizado_mb: Optional[int] = None

@@ -124,6 +124,18 @@
     </div>
   </div>
 
+  <div class="modal fade" id="modalVer" tabindex="-1" aria-labelledby="verTitulo" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="verTitulo">Archivo</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" id="verCuerpo"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/http.js"></script>
@@ -262,6 +274,11 @@
     // ---------------------------------------------------------------
     function renderAlmacenamiento() {
       const u = Auth.obtenerUsuario(usuario.id);
+      if (!u) {
+        $('#storagePct').textContent = '—';
+        $('#storageDetail').textContent = usuario.nombre;
+        return;
+      }
       const pol = Auth.politicaEfectiva(u);
       const uso = Drive.usoMB(u.id);
       const pct = Math.min(100, (uso / pol.cuotaMB) * 100);
@@ -556,6 +573,10 @@
 
     function vistaCuenta() {
       const u = Auth.obtenerUsuario(usuario.id);
+      if (!u) {
+        return `${cabecera('Mi cuenta', usuario.email)}
+        <p class="page-sub">Los datos de cuota de esta pantalla siguen en el módulo de perfil.</p>`;
+      }
       const pol = Auth.politicaEfectiva(u);
       const uso = Drive.usoMB(u.id);
       const enPapelera = Drive.usoPapeleraMB(u.id);
@@ -870,6 +891,30 @@
       resultado(await Api.descargar(id), 'Descarga simulada iniciada.', { redibujar: false });
     }
 
+    function urlVer(id) {
+      const token = Auth.obtenerToken() || '';
+      return `api/archivos/${id}/ver?token=${encodeURIComponent(token)}`;
+    }
+
+    function verArchivo(id) {
+      const n = Drive.nodo(id);
+      if (!n || n.tipo === 'carpeta') return;
+      const ext = (n.nombre.split('.').pop() || '').toLowerCase();
+      const url = urlVer(id);
+      const titulo = document.getElementById('verTitulo');
+      const cuerpo = document.getElementById('verCuerpo');
+      titulo.textContent = n.nombre;
+      if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
+        cuerpo.innerHTML = `<img src="${url}" class="img-fluid" alt="${esc(n.nombre)}">`;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
+      } else if (['pdf', 'txt', 'csv'].includes(ext)) {
+        cuerpo.innerHTML = `<iframe src="${url}" width="100%" height="500px" title="${esc(n.nombre)}"></iframe>`;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
+      } else {
+        window.location.assign(url);
+      }
+    }
+
     async function accionQuitarCompartido(id) {
       const n = Drive.nodo(id);
       const shareId = Drive.comparticionDe(usuario.id, id);
@@ -993,6 +1038,7 @@
       const acc = Drive.acciones(usuario.id, n);
       const items = [];
       if (n.tipo === 'carpeta') items.push({ texto: 'Abrir', icono: iconos.abrir, accion: () => abrirCarpeta(n.id) });
+      else items.push({ texto: 'Ver', icono: iconos.abrir, accion: () => verArchivo(n.id) });
       if (acc.includes('descargar')) items.push({ texto: 'Descargar', icono: iconos.descargar, accion: () => accionDescargar(n.id) });
       if (acc.includes('renombrar')) items.push({ texto: 'Renombrar', icono: iconos.editar, accion: () => accionRenombrar(n.id) });
       if (acc.includes('mover')) items.push({ texto: 'Mover a…', icono: iconos.mover, accion: () => accionMover(n.id) });

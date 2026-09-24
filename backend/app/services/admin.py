@@ -19,6 +19,7 @@ from app.models import (
     UsuarioExtensionProhibida,
 )
 from app.services.perfil import BYTES_POR_MB, bytes_usados, cuota_y_limite_mb
+from app.services.telegram import avisar_resolucion
 
 ESTADO_PENDIENTE = "PENDIENTE"
 ESTADO_ACTIVO = "ACTIVO"
@@ -156,12 +157,14 @@ def aprobar_usuario(usuario_id: int, id_rol: int, db: Session) -> dict:
 
     usuario.id_rol = id_rol
     usuario.id_estado = _estado_por_nombre(ESTADO_ACTIVO, db).id
+    chat_id = usuario.telegram_id
     db.commit()
     db.refresh(usuario)
+    avisar_resolucion(chat_id, aprobado=True)
     return _a_resuelto_out(usuario)
 
 
-def rechazar_usuario(usuario_id: int, db: Session) -> dict:
+def rechazar_usuario(usuario_id: int, db: Session, motivo: Optional[str] = None) -> dict:
     """Rechaza una cuenta: cambia el estado a RECHAZADO.
 
     Reglas:
@@ -185,8 +188,10 @@ def rechazar_usuario(usuario_id: int, db: Session) -> dict:
         )
 
     usuario.id_estado = _estado_por_nombre(ESTADO_RECHAZADO, db).id
+    chat_id = usuario.telegram_id
     db.commit()
     db.refresh(usuario)
+    avisar_resolucion(chat_id, aprobado=False, motivo=motivo)
     return _a_resuelto_out(usuario)
 
 
@@ -202,15 +207,12 @@ def actualizar_cuota_usuario(
     usuario_id: int,
     cuota_mb: Optional[int],
     max_mb: Optional[int],
+    campos: set[str],
     db: Session,
 ) -> dict:
-    """Setea (o limpia) los overrides de cuota y max archivo de un usuario.
+    """Setea o limpia los overrides de cuota y max archivo de un usuario.
 
-    Reglas:
-    - Si un campo es None, se borra el override (hereda del rol).
-    - La cuota mínima es 1 MB. El max archivo debe ser ≥ 1 MB.
-    - Si max_mb > cuota_mb (cuando ambos vienen seteados), se rechaza.
-    - Si la cuota nueva es menor que el uso actual, se rechaza.
+    Solo se tocan las claves que vinieron en el JSON. `null` hereda del rol.
     """
     usuario = db.get(
         Usuario,
@@ -220,12 +222,20 @@ def actualizar_cuota_usuario(
     if usuario is None:
         raise ErrorNoEncontrado("Usuario no encontrado")
 
-    if cuota_mb is not None and cuota_mb < 1:
+    cambia_cuota = "cuota_personalizada_mb" in campos
+    cambia_max = "max_file_personalizado_mb" in campos
+
+    if cambia_cuota and cuota_mb is not None and cuota_mb < 1:
         raise ErrorValidacion("La cuota mínima es 1 MB")
-    if max_mb is not None and max_mb < 1:
+    if cambia_max and max_mb is not None and max_mb < 1:
         raise ErrorValidacion("El tamaño máximo por archivo debe ser ≥ 1 MB")
 
-    if cuota_mb is not None:
+    cuota_final = cuota_mb if cambia_cuota else usuario.cuota_personalizada_mb
+    max_final = max_mb if cambia_max else usuario.max_file_personalizado_mb
+    cuota_efectiva = cuota_final if cuota_final is not None else usuario.rol.cuota_total_mb
+    max_efectivo = max_final if max_final is not None else usuario.rol.max_file_size_mb
+
+    if cambia_cuota and cuota_mb is not None:
         uso_bytes = bytes_usados(usuario_id, db)
         if uso_bytes > cuota_mb * BYTES_POR_MB:
             raise ErrorValidacion(
@@ -233,13 +243,15 @@ def actualizar_cuota_usuario(
                 f"más que la cuota que querés asignar ({cuota_mb} MB)."
             )
 
-    if cuota_mb is not None and max_mb is not None and max_mb > cuota_mb:
+    if max_efectivo > cuota_efectiva:
         raise ErrorValidacion(
             "El tamaño máximo por archivo no puede superar la cuota total"
         )
 
-    usuario.cuota_personalizada_mb = cuota_mb
-    usuario.max_file_personalizado_mb = max_mb
+    if cambia_cuota:
+        usuario.cuota_personalizada_mb = cuota_mb
+    if cambia_max:
+        usuario.max_file_personalizado_mb = max_mb
     db.commit()
     db.refresh(usuario)
     return _a_cuota_out(usuario, db)
