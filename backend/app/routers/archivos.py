@@ -203,6 +203,14 @@ def listar_archivos(
                 status_code=404,
                 detail="La carpeta no existe",
             )
+    else:
+        # Si estamos en la raíz y el usuario aún no tiene carpetas, sembramos las iniciales de su rol
+        try:
+            from app.services.admin import sembrar_carpetas_iniciales
+            nombre_rol = usuario.rol.nombre if usuario.rol else ""
+            sembrar_carpetas_iniciales(usuario.id, nombre_rol, db)
+        except Exception:
+            pass
 
     offset = (pagina - 1) * limite
 
@@ -232,19 +240,37 @@ def listar_archivos(
         .limit(limite)
     ).all()
 
+    from sqlalchemy import func
+
+    carpetas_data = []
+    for carpeta in carpetas:
+        cant_archivos = db.scalar(
+            select(func.count(Archivo.id)).where(
+                Archivo.usuario_id == usuario.id,
+                Archivo.carpeta_id == carpeta.id,
+                Archivo.en_papelera.is_(False),
+            )
+        ) or 0
+        cant_subcarpetas = db.scalar(
+            select(func.count(Carpeta.id)).where(
+                Carpeta.usuario_id == usuario.id,
+                Carpeta.carpeta_padre_id == carpeta.id,
+                Carpeta.en_papelera.is_(False),
+            )
+        ) or 0
+        carpetas_data.append({
+            "id": carpeta.id,
+            "nombre": carpeta.nombre,
+            "carpeta_padre_id": carpeta.carpeta_padre_id,
+            "fecha_creacion": carpeta.fecha_creacion,
+            "cantidad_elementos": cant_archivos + cant_subcarpetas,
+        })
+
     return {
         "pagina": pagina,
         "limite": limite,
         "carpeta_id": carpeta_id,
-        "carpetas": [
-            {
-                "id": carpeta.id,
-                "nombre": carpeta.nombre,
-                "carpeta_padre_id": carpeta.carpeta_padre_id,
-                "fecha_creacion": carpeta.fecha_creacion,
-            }
-            for carpeta in carpetas
-        ],
+        "carpetas": carpetas_data,
         "archivos": [
             {
                 "id": archivo.id,
@@ -255,6 +281,81 @@ def listar_archivos(
             }
             for archivo in archivos
         ],
+    }
+
+
+@router.get("/{archivo_id}/descargar")
+def descargar_archivo(
+    archivo_id: int,
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Descarga el archivo físico del servidor."""
+    from fastapi.responses import FileResponse
+    archivo = db.scalar(
+        select(Archivo).where(
+            Archivo.id == archivo_id,
+            Archivo.en_papelera.is_(False),
+        )
+    )
+    if not archivo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El archivo no existe",
+        )
+
+    # Permitir si es propio o si fue compartido con el usuario
+    if archivo.usuario_id != usuario.id:
+        permiso = db.scalar(
+            select(Permiso).where(
+                Permiso.archivo_id == archivo.id,
+                Permiso.usuario_id == usuario.id,
+            )
+        )
+        if not permiso:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No tenés permiso para descargar este archivo",
+            )
+
+    ruta = Path(archivo.ruta)
+    if not ruta.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El archivo físico no fue encontrado en el servidor.",
+        )
+    return FileResponse(
+        path=str(ruta),
+        filename=archivo.nombre_original,
+        media_type="application/octet-stream",
+    )
+
+
+@router.get("/papelera")
+def listar_papelera(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lista todos los archivos del usuario que están actualmente en la papelera."""
+    archivos = db.scalars(
+        select(Archivo)
+        .where(
+            Archivo.usuario_id == usuario.id,
+            Archivo.en_papelera.is_(True),
+        )
+        .order_by(Archivo.fecha_eliminacion.desc())
+    ).all()
+
+    return {
+        "archivos": [
+            {
+                "id": a.id,
+                "nombre": a.nombre_original,
+                "tamano_bytes": a.tamano_bytes,
+                "fecha_eliminacion": a.fecha_eliminacion,
+            }
+            for a in archivos
+        ]
     }
 
 
@@ -278,6 +379,23 @@ def restaurar(
     """Restaura un archivo desde la papelera."""
     archivo = obtener_archivo_propio(archivo_id, usuario, db)
     return restaurar_de_papelera(archivo, db)
+
+
+@router.delete("/papelera/vaciar")
+def vaciar_papelera(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Elimina definitivamente todos los archivos en papelera del usuario."""
+    archivos = db.scalars(
+        select(Archivo).where(
+            Archivo.usuario_id == usuario.id,
+            Archivo.en_papelera.is_(True),
+        )
+    ).all()
+    for archivo in archivos:
+        eliminar_definitivamente(archivo, db)
+    return {"mensaje": "Papelera vaciada con éxito", "eliminados": len(archivos)}
 
 
 @router.delete("/{archivo_id}", status_code=status.HTTP_204_NO_CONTENT)
