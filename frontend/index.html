@@ -7,6 +7,8 @@
   <title>CampusCloud — Mis archivos</title>
 
   <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="favicon.ico">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -101,12 +103,9 @@
             </div>
 
             <div class="field">
-              <label for="shPermiso">Permiso</label>
-              <div class="input-wrap">
-                <select id="shPermiso" name="permiso">
-                  <option value="lector">Lector — ve y descarga</option>
-                  <option value="editor">Editor — también sube y renombra</option>
-                </select>
+              <label>Permiso</label>
+              <div class="input-wrap" style="padding: 10px 14px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; font-size: 0.88rem; color: var(--ink-soft);">
+                <strong>Lector</strong> — ve y descarga
               </div>
             </div>
 
@@ -183,6 +182,8 @@
       papelera: null, // { cargando, error, items }: lo llena cargarPapelera()
       perfil: null, // { cargando, error, datos }: lo llena cargarPerfil()
       contenidoBackend: null, // { carpetaId: null, carpetas: [], archivos: [] }
+      resultadosBusqueda: null, // { q: '', carpetas: [], archivos: [] }
+      cargandoBusqueda: false,
       mapaCarpetas: {}, // id -> objeto carpeta
       cargandoContenido: false,
       tablas: {
@@ -204,6 +205,59 @@
     // ---------------------------------------------------------------
     // Carga de contenido real desde el backend (FastAPI /api/archivos)
     // ---------------------------------------------------------------
+    function nodoDesdeBackendCarpeta(c) {
+      return {
+        id: c.id,
+        nombre: c.nombre,
+        tipo: 'carpeta',
+        padreId: c.carpeta_padre_id,
+        propietarioId: usuario.id,
+        creado: c.fecha_creacion,
+        modificado: c.fecha_creacion,
+        cantidad: c.cantidad_elementos != null ? c.cantidad_elementos : 0,
+      };
+    }
+
+    function nodoDesdeBackendArchivo(a) {
+      const ext = (a.nombre || '').split('.').pop().toLowerCase();
+      return {
+        id: a.id,
+        nombre: a.nombre,
+        tipo: 'archivo',
+        padreId: a.carpeta_id,
+        tamanioMB: (a.tamano_bytes || 0) / (1024 * 1024),
+        propietarioId: usuario.id,
+        ext: ext,
+        creado: a.fecha_subida,
+        modificado: a.fecha_subida,
+      };
+    }
+
+    function obtenerNodo(id) {
+      if (!id) return null;
+      const strId = String(id);
+      if (estado.contenidoBackend) {
+        const a = estado.contenidoBackend.archivos.find(x => String(x.id) === strId);
+        if (a) return nodoDesdeBackendArchivo(a);
+        const c = estado.contenidoBackend.carpetas.find(x => String(x.id) === strId);
+        if (c) return nodoDesdeBackendCarpeta(c);
+      }
+      if (estado.resultadosBusqueda) {
+        const a = estado.resultadosBusqueda.archivos.find(x => String(x.id) === strId);
+        if (a) return nodoDesdeBackendArchivo(a);
+        const c = estado.resultadosBusqueda.carpetas.find(x => String(x.id) === strId);
+        if (c) return nodoDesdeBackendCarpeta(c);
+      }
+      if (estado.mapaCarpetas && estado.mapaCarpetas[id]) {
+        return nodoDesdeBackendCarpeta(estado.mapaCarpetas[id]);
+      }
+      if (estado.compartidos && estado.compartidos.items) {
+        const item = estado.compartidos.items.find(x => String(x.id) === strId || (x.nodo && String(x.nodo.id) === strId));
+        if (item) return item.nodo || item;
+      }
+      return Drive.nodo(id);
+    }
+
     let secuenciaCarga = 0;
     async function cargarContenido(carpetaId = null) {
       const mia = ++secuenciaCarga;
@@ -224,6 +278,37 @@
         };
       }
       actualizarAlmacenamientoReal();
+      render();
+    }
+
+    let secuenciaBusqueda = 0;
+    async function cargarBusqueda(q) {
+      const mia = ++secuenciaBusqueda;
+      const texto = (q || '').trim();
+      if (!texto) {
+        estado.resultadosBusqueda = null;
+        estado.cargandoBusqueda = false;
+        render();
+        return;
+      }
+      estado.cargandoBusqueda = true;
+      render();
+      const r = await Api.listarContenido(null, 1, 100, texto);
+      if (mia !== secuenciaBusqueda) return;
+      estado.cargandoBusqueda = false;
+      if (r && r.ok) {
+        if (Array.isArray(r.carpetas)) {
+          estado.mapaCarpetas = estado.mapaCarpetas || {};
+          r.carpetas.forEach(c => { estado.mapaCarpetas[c.id] = c; });
+        }
+        estado.resultadosBusqueda = {
+          q: texto,
+          carpetas: Array.isArray(r.carpetas) ? r.carpetas : [],
+          archivos: Array.isArray(r.archivos) ? r.archivos : [],
+        };
+      } else {
+        estado.resultadosBusqueda = { q: texto, carpetas: [], archivos: [] };
+      }
       render();
     }
 
@@ -269,7 +354,7 @@
       estado.seccion = seccion;
       estado.carpetaId = carpetaId ? Number(carpetaId) : null;
       estado.verTodasCarpetas = false;
-      if (limpiarBusqueda) { estado.busqueda = ''; searchInput.value = ''; }
+      if (limpiarBusqueda) { estado.busqueda = ''; searchInput.value = ''; estado.resultadosBusqueda = null; }
       if (estado.tablas[seccion]) estado.tablas[seccion].pagina = 1;
       try { history.replaceState(null, '', '#' + seccion); } catch { /* ignorar */ }
       cerrarSidebar();
@@ -313,6 +398,21 @@
     }
 
     // Pide a la API (GET /api/usuarios/me) los datos del perfil y redibuja.
+    async function asegurarPerfil(forzar = false) {
+      if (forzar || !estado.perfil || !estado.perfil.datos) {
+        const r = await Api.miPerfil();
+        if (r.status === 401) { Auth.irA('login.html?e=expirada'); return null; }
+        if (r.ok) {
+          estado.perfil = { cargando: false, error: '', datos: r };
+          if (r.almacenamiento) {
+            estado.almacenamientoBackend = r.almacenamiento;
+            aplicarAlmacenamiento(r.almacenamiento);
+          }
+        }
+      }
+      return estado.perfil ? estado.perfil.datos : null;
+    }
+
     let secuenciaPerfil = 0;
     async function cargarPerfil() {
       const mia = ++secuenciaPerfil;
@@ -351,13 +451,19 @@
     let temporizadorBusqueda = null;
     searchInput.addEventListener('input', () => {
       clearTimeout(temporizadorBusqueda);
-      temporizadorBusqueda = setTimeout(() => {
-        estado.busqueda = searchInput.value.trim();
+      temporizadorBusqueda = setTimeout(async () => {
+        const q = searchInput.value.trim();
+        estado.busqueda = q;
         if (estado.seccion === 'cuenta') estado.seccion = 'archivos';
         estado.tablas.busqueda.pagina = 1;
         if (estado.tablas[estado.seccion]) estado.tablas[estado.seccion].pagina = 1;
-        render();
-      }, 150);
+        if (q) {
+          await cargarBusqueda(q);
+        } else {
+          estado.resultadosBusqueda = null;
+          render();
+        }
+      }, 250);
     });
 
     // ---------------------------------------------------------------
@@ -440,7 +546,7 @@
           const compartido = n.propietarioId === usuario.id && Drive.cantidadComparticiones(n.id) > 0;
           const nombre = n.tipo === 'carpeta'
             ? `<button type="button" class="file-link" data-abrir="${esc(n.id)}">${esc(n.nombre)}</button>`
-            : `<span>${esc(n.nombre)}</span>`;
+            : `<button type="button" class="file-link" data-ver="${esc(n.id)}" title="Ver ${esc(n.nombre)}">${esc(n.nombre)}</button>`;
           const sub = subtitulo ? subtitulo(f) : null;
           return `<div class="file-cell">
           ${UI.iconoNodo(n)}
@@ -511,14 +617,45 @@
     // ---------------------------------------------------------------
     function vistaBusqueda() {
       const q = estado.busqueda;
-      const resultados = Drive.buscarPropios(usuario.id, q).map(filaDesdeNodo);
+      if (estado.cargandoBusqueda) {
+        return `
+        ${cabecera('Resultados de búsqueda', `Buscando “${esc(q)}”…`)}
+        <section>
+          <div class="empty-state" role="status" aria-live="polite">
+            <span class="dc-spinner" aria-hidden="true"></span>
+            <p>Buscando en tus archivos…</p>
+          </div>
+        </section>`;
+      }
+
+      let filas = [];
+      if (estado.resultadosBusqueda && estado.resultadosBusqueda.q === q) {
+        const carpetas = estado.resultadosBusqueda.carpetas.map(c => filaDesdeNodo(nodoDesdeBackendCarpeta(c)));
+        const archivos = estado.resultadosBusqueda.archivos.map(a => filaDesdeNodo(nodoDesdeBackendArchivo(a)))
+          .filter(f => estado.filtroTipo === 'todos' || UI.tipoDeArchivo(f.nodo.ext) === estado.filtroTipo);
+        filas = [...carpetas, ...archivos];
+      } else {
+        filas = Drive.buscarPropios(usuario.id, q).map(filaDesdeNodo)
+          .filter(f => estado.filtroTipo === 'todos' || f.tipo === 'carpeta' || UI.tipoDeArchivo(f.nodo.ext) === estado.filtroTipo);
+      }
+
+      const subtituloRuta = f => {
+        if (!f.nodo.padreId) return 'Mis archivos';
+        if (estado.mapaCarpetas && estado.mapaCarpetas[f.nodo.padreId]) {
+          return estado.mapaCarpetas[f.nodo.padreId].nombre;
+        }
+        const mockNodo = Drive.nodo(f.nodo.padreId);
+        if (mockNodo) return Drive.rutaTexto(f.nodo.padreId);
+        return 'Carpeta';
+      };
+
       return `
-      ${cabecera('Resultados de búsqueda', `${resultados.length} resultado${resultados.length === 1 ? '' : 's'} para “${q}”`)}
+      ${cabecera('Resultados de búsqueda', `${filas.length} resultado${filas.length === 1 ? '' : 's'} para “${q}”`)}
       <section>
         ${UI.tabla({
         caption: 'Resultados de búsqueda',
-        columnas: [colNombre(f => Drive.rutaTexto(f.nodo.padreId)), colTamanio, colModificado, colAcciones],
-        filas: resultados,
+        columnas: [colNombre(subtituloRuta), colTamanio, colModificado, colAcciones],
+        filas: filas,
         estado: estado.tablas.busqueda,
         grupo: f => f.tipo === 'carpeta' ? 0 : 1,
         vacio: 'No encontramos nada con ese nombre. Probá con otra palabra.',
@@ -682,7 +819,7 @@
       const columnas = [
         {
           clave: 'nombre', titulo: 'Nombre', ordenable: true, valor: f => f.nombre,
-          render: f => `<div class="file-cell">${UI.iconoArchivo(f.ext)}<div class="file-text"><div class="file-name"><span>${esc(f.nombre)}</span></div></div></div>`,
+          render: f => `<div class="file-cell">${UI.iconoArchivo(f.ext)}<div class="file-text"><div class="file-name"><button type="button" class="file-link" data-ver="${esc(f.id)}" title="Ver ${esc(f.nombre)}">${esc(f.nombre)}</button></div></div></div>`,
         },
         {
           clave: 'propietario', titulo: 'Compartido por', ordenable: true, valor: f => f.propietario,
@@ -693,7 +830,9 @@
         {
           clave: 'acciones', titulo: 'Acciones', clase: 'col-actions',
           render: f => `<span class="row-actions">
+            <button type="button" class="icon-btn" data-ver="${esc(f.id)}" aria-label="Ver ${esc(f.nombre)}" title="Ver">${iconos.abrir}</button>
             <button type="button" class="icon-btn" data-descargar="${esc(f.id)}" aria-label="Descargar ${esc(f.nombre)}" title="Descargar">${iconos.descargar}</button>
+            <button type="button" class="icon-btn is-danger" data-quitar-compartido="${esc(f.id)}" aria-label="Quitar de mi lista" title="Quitar de mi lista">${iconos.cerrar}</button>
           </span>`
         },
       ];
@@ -733,12 +872,14 @@
       const filas = todos
         .filter(n => !q || UI.normalizar(n.nombre || n.nombre_original || '').includes(q))
         .map(n => {
-          const nombre = n.nombre || n.nombre_original || 'Archivo';
-          const ext = Auth.extensionDe(nombre);
+          const nombre = n.nombre || n.nombre_original || 'Elemento';
+          const tipo = n.tipo || (n.tamano_bytes != null ? 'archivo' : 'carpeta');
+          const ext = tipo === 'carpeta' ? null : Auth.extensionDe(nombre);
           const tamanioMB = n.tamano_bytes != null ? (n.tamano_bytes / 1048576) : (n.tamanioMB || (n.nodo ? n.nodo.tamanioMB : 0));
           return {
             id: n.id,
             nombre: nombre,
+            tipo: tipo,
             ext: ext,
             tamanioMB: tamanioMB,
             eliminadoEn: Date.parse(n.fecha_eliminacion || n.eliminadoEn) || Date.now(),
@@ -748,15 +889,15 @@
       const columnas = [
         {
           clave: 'nombre', titulo: 'Nombre', ordenable: true, valor: f => f.nombre,
-          render: f => `<div class="file-cell">${UI.iconoArchivo(f.ext)}<div class="file-text"><div class="file-name"><span>${esc(f.nombre)}</span></div></div></div>`,
+          render: f => `<div class="file-cell">${f.tipo === 'carpeta' ? UI.iconoNodo({ tipo: 'carpeta' }) : UI.iconoArchivo(f.ext)}<div class="file-text"><div class="file-name"><span>${esc(f.nombre)}</span></div></div></div>`,
         },
         colTamanio,
         { clave: 'eliminadoEn', titulo: 'Eliminado', ordenable: true, clase: 'col-date', valor: f => f.eliminadoEn, render: f => esc(formatoFecha(f.eliminadoEn)) },
         {
           clave: 'acciones', titulo: 'Acciones', clase: 'col-actions',
           render: f => `<span class="row-actions">
-          <button type="button" class="icon-btn" data-restaurar="${esc(f.id)}" aria-label="Restaurar ${esc(f.nombre)}" title="Restaurar">${iconos.restaurar}</button>
-          <button type="button" class="icon-btn is-danger" data-borrar-def="${esc(f.id)}" aria-label="Eliminar ${esc(f.nombre)} definitivamente" title="Eliminar definitivamente">${iconos.papelera}</button>
+          <button type="button" class="icon-btn" data-restaurar="${esc(f.id)}" data-tipo="${esc(f.tipo)}" aria-label="Restaurar ${esc(f.nombre)}" title="Restaurar">${iconos.restaurar}</button>
+          <button type="button" class="icon-btn is-danger" data-borrar-def="${esc(f.id)}" data-tipo="${esc(f.tipo)}" aria-label="Eliminar ${esc(f.nombre)} definitivamente" title="Eliminar definitivamente">${iconos.papelera}</button>
         </span>`,
         },
       ];
@@ -806,7 +947,11 @@
 
       const limites = datos.limites || {};
       const maxArchivoMB = limites.tamano_max_archivo_bytes ? (limites.tamano_max_archivo_bytes / (1024 * 1024)) : 10;
-      const extensiones = limites.extensiones_permitidas ? limites.extensiones_permitidas.join(', ') : 'Todas';
+      const extensiones = limites.extensiones_permitidas && limites.extensiones_permitidas.length ? limites.extensiones_permitidas.join(', ') : 'Ninguna';
+      const extensionesBloqueadas = limites.extensiones_bloqueadas && limites.extensiones_bloqueadas.length
+        ? limites.extensiones_bloqueadas.join(', ')
+        : 'Ninguna (todas permitidas)';
+      const tieneBloqueadas = !!(limites.extensiones_bloqueadas && limites.extensiones_bloqueadas.length);
 
       return `
       ${cabecera('Mi cuenta', 'Tus datos y la seguridad de tu espacio.')}
@@ -846,6 +991,7 @@
                 <tr><th scope="row">Espacio total</th><td>${esc(formatoTamanio(cuotaMB))}</td></tr>
                 <tr><th scope="row">Tamaño máximo por archivo</th><td>${esc(formatoTamanio(maxArchivoMB))}</td></tr>
                 <tr><th scope="row">Extensiones permitidas</th><td>${esc(extensiones)}</td></tr>
+                <tr><th scope="row">Extensiones bloqueadas</th><td><span style="${tieneBloqueadas ? 'color: #dc2626; font-weight: 500;' : ''}">${esc(extensionesBloqueadas)}</span></td></tr>
               </tbody>
             </table>
 
@@ -938,18 +1084,31 @@
     }
 
     // ---- Diálogo de subida: arrastrar y soltar, validación previa y subida ----
-    function abrirSubida() {
+    async function abrirSubida() {
       const d = destinoSubida();
       if (!d.ok) { UI.aviso({ titulo: 'No se puede subir archivos acá', mensaje: d.motivo }); return; }
 
+      const perfilDatos = await asegurarPerfil();
+      const limites = (perfilDatos && perfilDatos.limites) || {};
+      const alm = (perfilDatos && perfilDatos.almacenamiento) || {};
+
+      const maxBytes = limites.tamano_max_archivo_bytes || (25 * 1024 * 1024);
+      const maxMB = Math.round(maxBytes / (1024 * 1024));
+      const bloqueadasLista = (limites.extensiones_bloqueadas || []).map(x => x.toLowerCase().trim());
+      const bloqueadasSet = new Set(bloqueadasLista);
+      const permitidasLista = (limites.extensiones_permitidas || []).map(x => x.toLowerCase().trim());
+      const permitidasSet = permitidasLista.length ? new Set(permitidasLista) : null;
+
+      let fraseExt;
+      if (bloqueadasLista.length) {
+        fraseExt = `Extensiones no permitidas: ${bloqueadasLista.join(', ')}.`;
+      } else if (permitidasLista.length) {
+        fraseExt = `Extensiones permitidas: ${permitidasLista.join(', ')}.`;
+      } else {
+        fraseExt = 'Se permiten todas las extensiones.';
+      }
+
       const carpetaDestino = d.padreId ? ((estado.mapaCarpetas && estado.mapaCarpetas[d.padreId]) || Drive.nodo(d.padreId)) : null;
-      const dueno = Auth.obtenerUsuario(carpetaDestino ? (carpetaDestino.propietarioId || carpetaDestino.usuario_id) : usuario.id) || usuario;
-      const pol = Auth.politicaEfectiva(dueno);
-      const ext = pol.extensiones;
-      const listaExt = ext && ext.lista ? ext.lista.map(x => '.' + x).join(', ') : '';
-      const fraseExt = !ext || ext.modo === 'todas' ? 'Se permiten todas las extensiones.'
-        : ext.modo === 'permitidas' ? `Solo se permiten: ${listaExt}.`
-          : `Extensiones no permitidas: ${listaExt}.`;
 
       const dlg = UI.dialogo(`
       <div class="dc-upl">
@@ -972,7 +1131,7 @@
           <div class="dc-limit-box">
             ${iconos.info}
             <div>
-              <strong>Límite máximo por archivo: ${esc(formatoTamanio(pol.maxArchivoMB))}.</strong>
+              <strong>Límite máximo por archivo: ${esc(formatoTamanio(maxMB))}.</strong>
               <span>${esc(fraseExt)}</span>
             </div>
           </div>
@@ -1028,7 +1187,19 @@
 
       function agregar(archivos) {
         Array.from(archivos).forEach(file => {
-          const motivo = Drive.validarSubida(usuario.id, d.padreId, file); // revisa extensión, tamaño y cuota antes de subir
+          let motivo = null;
+          const ext = '.' + (file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '');
+          
+          if (bloqueadasSet.has(ext)) {
+            motivo = `La extensión ${ext} no está permitida para tu cuenta.`;
+          } else if (permitidasSet && !permitidasSet.has(ext)) {
+            motivo = `La extensión ${ext} no está permitida.`;
+          } else if (file.size > maxBytes) {
+            motivo = `El archivo supera el tamaño máximo permitido (${formatoTamanio(maxMB)}).`;
+          } else if (alm.cuota_bytes && (alm.usado_bytes + file.size > alm.cuota_bytes)) {
+            motivo = 'No tenés suficiente espacio libre para subir este archivo.';
+          }
+
           cola.push({ uid: ++seq, file, estado: motivo ? 'error' : 'pendiente', error: motivo || '' });
         });
         btnCancelar.textContent = 'Cancelar';
@@ -1075,7 +1246,8 @@
         }
       });
 
-      dlg.addEventListener('close', () => {
+      dlg.addEventListener('close', async () => {
+        await asegurarPerfil(true);
         if (estado.seccion === 'archivos') cargarContenido(estado.carpetaId);
         else render();
       });
@@ -1090,57 +1262,115 @@
     });
 
     async function accionRenombrar(id) {
-      const n = Drive.nodo(id);
+      const n = obtenerNodo(id);
       if (!n) return;
       const v = await UI.formulario({
         titulo: n.tipo === 'carpeta' ? 'Renombrar carpeta' : 'Renombrar archivo',
         campos: [{ nombre: 'nombre', etiqueta: 'Nuevo nombre', tipo: 'text', requerido: true, validar: Drive.validarNombre }],
         valores: { nombre: n.nombre },
         textoOk: 'Renombrar',
-        alEnviar: async (d) => { const r = await Api.renombrar(id, d.nombre); return r.ok ? null : r.motivo; },
+        alEnviar: async (d) => {
+          const r = await Api.renombrar(id, d.nombre, n.tipo);
+          return r.ok ? null : (r.motivo || 'Error al renombrar');
+        },
       });
-      if (v) { render(); UI.toast('Nombre actualizado.', { tipo: 'ok' }); }
+      if (v) {
+        if (estado.seccion === 'archivos') {
+          if (estado.busqueda) await cargarBusqueda(estado.busqueda);
+          else await cargarContenido(estado.carpetaId);
+        } else {
+          render();
+        }
+        UI.toast('Nombre actualizado.', { tipo: 'ok' });
+      }
     }
 
     async function accionMover(id) {
-      const n = Drive.nodo(id);
+      const n = obtenerNodo(id);
       if (!n) return;
-      const opciones = [{ valor: '', texto: 'Mis archivos (raíz)' }]
-        .concat(Drive.carpetasDestino(usuario.id, n.tipo === 'carpeta' ? id : null).map(c => ({ valor: c.id, texto: c.etiqueta })));
+
+      // Traer todas las carpetas reales del usuario desde el backend
+      const r = await Api.listarTodasCarpetas();
+      let opciones = [{ valor: '', texto: 'Mis archivos (raíz)' }];
+
+      const lista = (r && r.ok && Array.isArray(r.datos || r)) ? (Array.isArray(r.datos) ? r.datos : r) : null;
+      if (lista) {
+        const mapa = {};
+        lista.forEach(c => { mapa[c.id] = c; });
+        function rutaTextoCarpeta(cid) {
+          const partes = [];
+          let cur = cid;
+          const visitados = new Set();
+          while (cur && mapa[cur] && !visitados.has(cur)) {
+            visitados.add(cur);
+            partes.unshift(mapa[cur].nombre);
+            cur = mapa[cur].carpeta_padre_id;
+          }
+          return partes.join(' / ');
+        }
+        const filtradas = lista.filter(c => n.tipo !== 'carpeta' || String(c.id) !== String(id));
+        opciones = opciones.concat(
+          filtradas.map(c => ({ valor: String(c.id), texto: rutaTextoCarpeta(c.id) }))
+            .sort((a, b) => a.texto.localeCompare(b.texto, 'es'))
+        );
+      } else {
+        opciones = opciones.concat(
+          Drive.carpetasDestino(usuario.id, n.tipo === 'carpeta' ? id : null).map(c => ({ valor: String(c.id), texto: c.etiqueta }))
+        );
+      }
+
       const v = await UI.formulario({
         titulo: `Mover “${n.nombre}”`,
         campos: [{ nombre: 'destino', etiqueta: 'Carpeta de destino', tipo: 'select', opciones }],
-        valores: { destino: n.padreId || '' },
+        valores: { destino: n.padreId ? String(n.padreId) : '' },
         textoOk: 'Mover',
-        alEnviar: async (d) => { const r = await Api.mover(id, d.destino || null); return r.ok ? null : r.motivo; },
+        alEnviar: async (d) => {
+          const destinoId = (d.destino && String(d.destino).trim() !== '') ? Number(d.destino) : null;
+          const res = await Api.mover(id, destinoId, n.tipo);
+          return res.ok ? null : (res.motivo || 'Error al mover');
+        },
       });
-      if (v) { render(); UI.toast('Elemento movido.', { tipo: 'ok' }); }
+      if (v) {
+        if (estado.seccion === 'archivos') {
+          if (estado.busqueda) await cargarBusqueda(estado.busqueda);
+          else await cargarContenido(estado.carpetaId);
+        } else {
+          render();
+        }
+        UI.toast('Elemento movido.', { tipo: 'ok' });
+      }
     }
 
     async function accionEliminar(id) {
-      const n = (estado.contenidoBackend && estado.contenidoBackend.archivos.find(a => String(a.id) === String(id)))
-        || Drive.nodo(id);
+      const n = obtenerNodo(id);
       const nombre = n ? n.nombre : 'este elemento';
+      const tipo = (n && n.tipo === 'carpeta') ? 'carpeta' : 'archivo';
       const okConfirm = await UI.confirmar({
         titulo: `¿Mover “${nombre}” a la papelera?`,
-        mensaje: n && n.tipo === 'carpeta'
+        mensaje: tipo === 'carpeta'
           ? 'Se va a mover junto con todo lo que tiene adentro. Podés restaurarla mientras no vacíes la papelera.'
           : 'Podés restaurarlo mientras no vacíes la papelera.',
         textoOk: 'Mover a la papelera',
         peligro: true,
       });
       if (!okConfirm) return;
-      const r = await Api.eliminar(id);
-      if (!r.ok) { UI.toast(r.motivo, { tipo: 'error' }); return; }
-      if (estado.seccion === 'archivos') await cargarContenido(estado.carpetaId);
+      const r = await Api.eliminar(id, tipo);
+      if (!r.ok) { UI.toast(r.motivo || 'Error al mover a la papelera.', { tipo: 'error' }); return; }
+      if (estado.seccion === 'archivos') {
+        if (estado.busqueda) await cargarBusqueda(estado.busqueda);
+        else await cargarContenido(estado.carpetaId);
+      }
       actualizarAlmacenamientoReal();
       UI.toast(`“${nombre}” está en la papelera.`, {
         accion: {
           texto: 'Deshacer',
           fn: async () => {
-            const res = await Api.restaurar(id);
+            const res = await Api.restaurar(id, tipo);
             if (res.ok) {
-              if (estado.seccion === 'archivos') await cargarContenido(estado.carpetaId);
+              if (estado.seccion === 'archivos') {
+                if (estado.busqueda) await cargarBusqueda(estado.busqueda);
+                else await cargarContenido(estado.carpetaId);
+              }
               actualizarAlmacenamientoReal();
               UI.toast('Restaurado.', { tipo: 'ok' });
             }
@@ -1150,27 +1380,29 @@
     }
 
     async function accionDescargar(id) {
-      resultado(await Api.descargar(id), 'Descarga simulada iniciada.', { redibujar: false });
+      resultado(await Api.descargar(id), 'Descarga iniciada.', { redibujar: false });
     }
 
     function urlVer(id) {
       const token = Auth.obtenerToken() || '';
-      return `api/archivos/${id}/ver?token=${encodeURIComponent(token)}`;
+      return `/api/archivos/${id}/ver?token=${encodeURIComponent(token)}`;
     }
 
     function verArchivo(id) {
-      const n = Drive.nodo(id);
+      const n = obtenerNodo(id) || (estado.compartidos && estado.compartidos.items && estado.compartidos.items.find(x => String(x.id) === String(id)));
       if (!n || n.tipo === 'carpeta') return;
-      const ext = (n.nombre.split('.').pop() || '').toLowerCase();
+      const nombre = n.nombre || n.nombre_original || 'Archivo';
+      const ext = (n.ext || (nombre || '').split('.').pop() || '').toLowerCase();
       const url = urlVer(id);
       const titulo = document.getElementById('verTitulo');
       const cuerpo = document.getElementById('verCuerpo');
-      titulo.textContent = n.nombre;
+      if (titulo) titulo.textContent = nombre;
+      if (!cuerpo) return;
       if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'].includes(ext)) {
-        cuerpo.innerHTML = `<img src="${url}" class="img-fluid" alt="${esc(n.nombre)}">`;
+        cuerpo.innerHTML = `<div class="text-center p-2"><img src="${url}" class="img-fluid rounded shadow-sm" style="max-height: 75vh; object-fit: contain;" alt="${esc(nombre)}"></div>`;
         bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
       } else if (['pdf', 'txt', 'csv'].includes(ext)) {
-        cuerpo.innerHTML = `<iframe src="${url}" width="100%" height="500px" title="${esc(n.nombre)}"></iframe>`;
+        cuerpo.innerHTML = `<iframe src="${url}" width="100%" height="600px" style="border:none; border-radius: 4px;" title="${esc(nombre)}"></iframe>`;
         bootstrap.Modal.getOrCreateInstance(document.getElementById('modalVer')).show();
       } else {
         window.location.assign(url);
@@ -1178,17 +1410,22 @@
     }
 
     async function accionQuitarCompartido(id) {
-      const n = Drive.nodo(id);
-      const shareId = Drive.comparticionDe(usuario.id, id);
-      if (!n || !shareId) return;
+      const n = (estado.compartidos && estado.compartidos.items && estado.compartidos.items.find(x => String(x.id) === String(id))) || obtenerNodo(id);
+      const nombre = n ? (n.nombre || n.nombre_original || 'este archivo') : 'este archivo';
       const okConfirm = await UI.confirmar({
-        titulo: `¿Dejar de ver “${n.nombre}”?`,
-        mensaje: 'Va a desaparecer de tu lista. La persona que lo compartió puede volver a invitarte.',
+        titulo: `¿Dejar de ver “${nombre}”?`,
+        mensaje: 'Va a desaparecer de tu lista de compartidos.',
         textoOk: 'Quitar de mi lista',
         peligro: true,
       });
       if (!okConfirm) return;
-      if (resultado(await Api.quitarComparticion(shareId), 'Quitado de tu lista.', { redibujar: false })) cargarCompartidos();
+      const r = await Api.quitarDeMisCompartidos(id);
+      if (r.ok) {
+        UI.toast('Quitado de tu lista.', { tipo: 'ok' });
+        cargarCompartidos();
+      } else {
+        UI.toast(r.motivo || 'Error al quitar archivo.', { tipo: 'error' });
+      }
     }
 
     // ---- Modal de Bootstrap para compartir (#modalCompartir) ----
@@ -1211,28 +1448,30 @@
       sh.error.hidden = !msg;
     }
 
-    const shSelectPermiso = (valor, attrs) => `
-    <select ${attrs}>
-      <option value="lector"${valor === 'lector' ? ' selected' : ''}>Lector — ve y descarga</option>
-      <option value="editor"${valor === 'editor' ? ' selected' : ''}>Editor — también sube y renombra</option>
-    </select>`;
+    const shSelectPermiso = () => `
+    <span class="badge bg-secondary" style="font-size: 0.8rem; font-weight: 500; padding: 4px 8px;">Lector</span>`;
 
     /** Dibuja "Personas con acceso" del elemento abierto en el modal. */
-    function shPintarLista() {
-      const lista = compartirId ? Drive.comparticionesDe(compartirId) : [];
+    async function shPintarLista() {
+      if (!compartirId) {
+        sh.lista.innerHTML = '<p class="dc-muted">Todavía no compartiste este elemento con nadie.</p>';
+        return;
+      }
+      sh.lista.innerHTML = '<p class="dc-muted"><span class="dc-spinner dc-spinner-sm" aria-hidden="true"></span> Cargando personas con acceso…</p>';
+      const res = await Api.listarPermisosArchivo(compartirId);
+      const lista = (res && res.ok && Array.isArray(res.datos)) ? res.datos : (Array.isArray(res) ? res : (res && res.items ? res.items : []));
       sh.lista.innerHTML = lista.length
         ? `<ul class="dc-share-list">${lista.map(s => `
           <li>
-            <div class="dc-share-who"><strong>${esc(s.nombre)}</strong><span>${esc(s.email)}</span></div>
-            ${shSelectPermiso(s.permiso, `data-share-permiso="${esc(s.id)}" aria-label="Permiso de ${esc(s.nombre)}"`)}
-            <button type="button" class="icon-btn is-danger" data-share-quitar="${esc(s.id)}" aria-label="Quitar acceso a ${esc(s.nombre)}">${iconos.cerrar}</button>
+            <div class="dc-share-who"><strong>${esc(s.nombre || 'Usuario')}</strong><span>${esc(s.email || '')}</span></div>
+            ${shSelectPermiso()}
+            <button type="button" class="icon-btn is-danger" data-share-quitar="${esc(s.id)}" aria-label="Quitar acceso a ${esc(s.nombre || 'usuario')}">${iconos.cerrar}</button>
           </li>`).join('')}</ul>`
         : '<p class="dc-muted">Todavía no compartiste este elemento con nadie.</p>';
     }
 
     function abrirCompartir(id) {
-      const n = (estado.contenidoBackend && estado.contenidoBackend.archivos.find(a => String(a.id) === String(id)))
-        || Drive.nodo(id);
+      const n = obtenerNodo(id);
       if (!n) return;
       compartirId = id;
       sh.titulo.textContent = `Compartir “${n.nombre}”`;
@@ -1261,7 +1500,7 @@
       if (!valido) { sh.input.focus(); return; }
 
       UI.cargando(sh.btn, true);
-      const r = await Api.compartir(id, destinatario, sh.permiso ? sh.permiso.value : 'lector');
+      const r = await Api.compartir(id, destinatario, 'lector');
       UI.cargando(sh.btn, false);
 
       if (!r.ok) {
@@ -1269,13 +1508,9 @@
         shMostrarError(r.motivo || 'Error al compartir archivo.');
         return;
       }
-      sh.form.reset();
-      shPintarLista();
+      sh.input.value = '';
+      await shPintarLista();
       UI.toast(r.mensaje || `Archivo compartido con éxito.`, { tipo: 'ok' });
-      try {
-        const modalInst = bootstrap.Modal.getInstance(sh.modal);
-        if (modalInst) modalInst.hide();
-      } catch (err) { }
     });
 
     sh.lista.addEventListener('change', async (e) => {
@@ -1283,7 +1518,7 @@
       if (!sel) return;
       const r = await Api.cambiarPermisoComparticion(sel.dataset.sharePermiso, sel.value);
       if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
-      if (!r.ok) { shMostrarError(r.motivo); shPintarLista(); return; }
+      if (!r.ok) { shMostrarError(r.motivo); await shPintarLista(); return; }
       UI.toast('Permiso actualizado.', { tipo: 'ok' });
     });
 
@@ -1293,7 +1528,7 @@
       const r = await Api.quitarComparticion(q.dataset.shareQuitar);
       if (r.status === 401) { Auth.irA('login.html?e=expirada'); return; }
       if (!r.ok) { shMostrarError(r.motivo); return; }
-      shPintarLista();
+      await shPintarLista();
       UI.toast('Acceso quitado.', { tipo: 'ok' });
     });
 
@@ -1342,39 +1577,16 @@
       const k = e.target.closest('[data-menu-fila]');
       if (k) {
         const idBuscado = k.dataset.menuFila;
-        let n = Drive.nodo(idBuscado);
-        if (!n && estado.contenidoBackend) {
-          const a = estado.contenidoBackend.archivos.find(x => String(x.id) === String(idBuscado));
-          if (a) {
-            n = {
-              id: a.id,
-              nombre: a.nombre,
-              tipo: 'archivo',
-              padreId: a.carpeta_id,
-              propietarioId: usuario.id,
-              tamanioMB: (a.tamano_bytes || 0) / (1024 * 1024),
-              modificado: a.fecha_subida,
-            };
-          } else {
-            const c = (estado.mapaCarpetas && estado.mapaCarpetas[idBuscado]) || estado.contenidoBackend.carpetas.find(x => String(x.id) === String(idBuscado));
-            if (c) {
-              n = {
-                id: c.id,
-                nombre: c.nombre,
-                tipo: 'carpeta',
-                padreId: c.carpeta_padre_id,
-                propietarioId: usuario.id,
-                modificado: c.fecha_creacion,
-              };
-            }
-          }
-        }
+        const n = obtenerNodo(idBuscado);
         if (n) UI.menuContextual(k, itemsMenu(n));
         return;
       }
 
       const abrir = e.target.closest('[data-abrir]');
       if (abrir) { abrirCarpeta(abrir.dataset.abrir); return; }
+
+      const ver = e.target.closest('[data-ver]');
+      if (ver) { verArchivo(ver.dataset.ver); return; }
 
       const crumb = e.target.closest('[data-crumb]');
       if (crumb) { navegar(estado.seccion, crumb.dataset.crumb || null); return; }
@@ -1383,6 +1595,9 @@
 
       const comp = e.target.closest('[data-compartir]');
       if (comp) { abrirCompartir(comp.dataset.compartir); return; }
+
+      const quitComp = e.target.closest('[data-quitar-compartido]');
+      if (quitComp) { accionQuitarCompartido(quitComp.dataset.quitarCompartido); return; }
 
       const desc = e.target.closest('[data-descargar]');
       if (desc) { accionDescargar(desc.dataset.descargar); return; }
@@ -1401,13 +1616,14 @@
       const rest = e.target.closest('[data-restaurar]');
       if (rest) {
         const id = rest.dataset.restaurar;
-        const r = await Api.restaurar(id);
+        const tipo = rest.dataset.tipo || 'archivo';
+        const r = await Api.restaurar(id, tipo);
         if (r.ok) {
-          UI.toast('Archivo restaurado con éxito.', { tipo: 'ok' });
+          UI.toast(tipo === 'carpeta' ? 'Carpeta restaurada con éxito.' : 'Archivo restaurado con éxito.', { tipo: 'ok' });
           cargarPapelera();
           actualizarAlmacenamientoReal();
         } else {
-          UI.toast(r.motivo || 'Error al restaurar archivo.', { tipo: 'error' });
+          UI.toast(r.motivo || `Error al restaurar ${tipo}.`, { tipo: 'error' });
         }
         return;
       }
@@ -1415,22 +1631,25 @@
       const borrar = e.target.closest('[data-borrar-def]');
       if (borrar) {
         const id = borrar.dataset.borrarDef;
-        const item = estado.papelera && estado.papelera.items && estado.papelera.items.find(x => String(x.id) === String(id));
-        const nombre = item ? (item.nombre || item.nombre_original) : 'este archivo';
+        const tipo = borrar.dataset.tipo || 'archivo';
+        const item = estado.papelera && estado.papelera.items && estado.papelera.items.find(x => String(x.id) === String(id) && (x.tipo || 'archivo') === tipo);
+        const nombre = item ? (item.nombre || item.nombre_original) : `este ${tipo}`;
         const okConfirm = await UI.confirmar({
           titulo: `¿Eliminar “${nombre}” definitivamente?`,
-          mensaje: 'Esta acción no se puede deshacer y el archivo se borrará permanentemente.',
+          mensaje: tipo === 'carpeta'
+            ? 'Esta acción no se puede deshacer y se borrarán permanentemente la carpeta y todos sus contenidos.'
+            : 'Esta acción no se puede deshacer y el archivo se borrará permanentemente.',
           textoOk: 'Eliminar definitivamente',
           peligro: true,
         });
         if (okConfirm) {
-          const r = await Api.eliminarDefinitivo(id);
+          const r = await Api.eliminarDefinitivo(id, tipo);
           if (r.ok) {
-            UI.toast('Archivo eliminado definitivamente.', { tipo: 'ok' });
+            UI.toast(tipo === 'carpeta' ? 'Carpeta eliminada definitivamente.' : 'Archivo eliminado definitivamente.', { tipo: 'ok' });
             cargarPapelera();
             actualizarAlmacenamientoReal();
           } else {
-            UI.toast(r.motivo || 'Error al eliminar archivo.', { tipo: 'error' });
+            UI.toast(r.motivo || `Error al eliminar ${tipo}.`, { tipo: 'error' });
           }
         }
         return;
@@ -1511,10 +1730,19 @@
       }
     });
 
+    document.getElementById('modalVer')?.addEventListener('hidden.bs.modal', () => {
+      const cuerpo = document.getElementById('verCuerpo');
+      if (cuerpo) cuerpo.innerHTML = '';
+    });
+
+    asegurarPerfil(); // precarga silenciosa de cuotas y límites reales de la BD
     if (estado.seccion === 'compartidos') cargarCompartidos();
     else if (estado.seccion === 'papelera') cargarPapelera();
     else if (estado.seccion === 'cuenta') cargarPerfil();
-    else if (estado.seccion === 'archivos') cargarContenido(estado.carpetaId);
+    else if (estado.seccion === 'archivos') {
+      if (estado.busqueda) cargarBusqueda(estado.busqueda);
+      else cargarContenido(estado.carpetaId);
+    }
     else render();
   </script>
 
