@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies import get_current_user, get_current_user_flexible
+from app.dependencies import get_current_user, get_current_user_flexible, resolver_usuario_subida
 from app.models import Archivo, Carpeta, Extension, Permiso, Usuario
 from app.schemas import ArchivoPapeleraOut
 from app.services.papelera import (
@@ -50,7 +50,7 @@ router = APIRouter(
 async def subir_archivo(
     archivo: UploadFile = File(...),
     carpeta_id: int | None = Form(None),
-    usuario: Usuario = Depends(get_current_user),
+    usuario: Usuario = Depends(resolver_usuario_subida),
     db: Session = Depends(get_db),
 ):
     if not archivo.filename:

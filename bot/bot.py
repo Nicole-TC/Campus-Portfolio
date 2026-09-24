@@ -19,7 +19,7 @@ from typing import Optional
 import requests
 from telegram import Bot, Update
 from telegram.error import TelegramError
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -177,6 +177,75 @@ async def archivos(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def _datos_del_mensaje(update: Update) -> Optional[tuple[str, str]]:
+    """file_id y nombre de un documento o una foto. None si el mensaje no trae archivo."""
+    mensaje = update.message
+    if mensaje is None:
+        return None
+    if mensaje.document:
+        nombre = mensaje.document.file_name or "archivo"
+        return mensaje.document.file_id, nombre
+    if mensaje.photo:
+        return mensaje.photo[-1].file_id, "foto.jpg"
+    return None
+
+
+def _subir_en_backend(chat_id: int, nombre: str, contenido: bytes) -> tuple[Optional[int], Optional[dict]]:
+    """Manda el archivo a POST /archivos, carpeta raíz. Devuelve (código, JSON)."""
+    try:
+        resp = requests.post(
+            f"{BACKEND_URL}/archivos",
+            files={"archivo": (nombre, contenido)},
+            data={"chat_id": str(chat_id)},
+            headers={"X-Bot-Token": TELEGRAM_TOKEN},
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        logger.error("No se pudo contactar al backend: %s", e)
+        return None, None
+
+    try:
+        return resp.status_code, resp.json()
+    except ValueError:
+        return resp.status_code, None
+
+
+async def subir_express(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Un archivo o una foto en el chat se guarda en la carpeta raíz de CampusCloud."""
+    datos = _datos_del_mensaje(update)
+    if datos is None or update.effective_chat is None:
+        return
+
+    file_id, nombre = datos
+    try:
+        archivo_tg = await context.bot.get_file(file_id)
+        contenido = bytes(await archivo_tg.download_as_bytearray())
+    except TelegramError as e:
+        logger.warning("No se pudo bajar el archivo de Telegram: %s", e)
+        await update.message.reply_text(
+            "⚠️ Telegram no me dejó bajar ese archivo. Probá con uno de menos de 20 MB."
+        )
+        return
+
+    codigo, cuerpo = await asyncio.to_thread(
+        _subir_en_backend, update.effective_chat.id, nombre, contenido
+    )
+    mensaje = cuerpo.get("mensaje") if isinstance(cuerpo, dict) else None
+
+    if codigo == 201:
+        await update.message.reply_text(f"✅ Guardé «{nombre}» en tu carpeta raíz de CampusCloud.")
+    elif codigo == 404:
+        await update.message.reply_text(
+            "❌ Tu Telegram no está vinculado. Usá /start <tu DNI> para vincular la cuenta."
+        )
+    elif mensaje:
+        await update.message.reply_text(f"❌ {mensaje}")
+    else:
+        await update.message.reply_text(
+            "⚠️ No pude guardar el archivo ahora. Intentá de nuevo en unos minutos."
+        )
+
+
 async def notificar_registro(bot: Bot, chat_id: int, aprobado: bool, motivo: Optional[str] = None) -> bool:
     """
     Avisa al usuario si su registro fue aprobado o rechazado.
@@ -203,6 +272,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("archivos", archivos))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, subir_express))
     app.run_polling()
 
 
