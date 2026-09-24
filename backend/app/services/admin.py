@@ -30,9 +30,22 @@ ESTADO_RECHAZADO = "RECHAZADO"
 # Catálogos (para que el front resuelva IDs)
 # ---------------------------------------------------------------
 
-def listar_roles(db: Session) -> list[Rol]:
-    """Todos los roles del sistema, ordenados por id."""
-    return list(db.scalars(select(Rol).order_by(Rol.id)))
+def listar_roles(db: Session) -> list[dict]:
+    """Todos los roles del sistema con cantidad de usuarios, ordenados por id."""
+    roles = list(db.scalars(select(Rol).order_by(Rol.id)))
+    resultado = []
+    for r in roles:
+        cant = db.scalar(
+            select(func.count(Usuario.id)).where(Usuario.id_rol == r.id)
+        ) or 0
+        resultado.append({
+            "id": r.id,
+            "nombre": r.nombre,
+            "cuota_total_mb": r.cuota_total_mb,
+            "max_file_size_mb": r.max_file_size_mb,
+            "cantidad_usuarios": cant,
+        })
+    return resultado
 
 
 def listar_estados(db: Session) -> list[Estado]:
@@ -107,15 +120,100 @@ def _a_cuota_out(usuario: Usuario, db: Session) -> dict:
         "id": usuario.id,
         "nombre": usuario.nombre,
         "apellido": usuario.apellido,
+        "dni": usuario.dni,
         "email": usuario.email,
-        "rol": usuario.rol.nombre,
-        "estado": usuario.estado.nombre,
+        "rol": usuario.rol.nombre if usuario.rol else "",
+        "estado": usuario.estado.nombre if usuario.estado else "",
         "cuota_personalizada_mb": usuario.cuota_personalizada_mb,
         "max_file_personalizado_mb": usuario.max_file_personalizado_mb,
         "cuota_efectiva_mb": cuota_mb,
         "max_file_efectivo_mb": max_mb,
         "uso_bytes": bytes_usados(usuario.id, db),
+        "fecha_registro": usuario.fecha_registro,
     }
+
+
+def listar_usuarios(db: Session, estado: Optional[str] = None) -> list[dict]:
+    """Lista usuarios registrados. Por defecto excluye a los PENDIENTES,
+    a menos que se especifique un estado concreto."""
+    query = (
+        select(Usuario)
+        .options(joinedload(Usuario.rol), joinedload(Usuario.estado))
+        .order_by(Usuario.nombre.asc(), Usuario.apellido.asc())
+    )
+    if estado and estado.lower() != "todos":
+        estado_upper = estado.upper()
+        if estado_upper == "APROBADO":
+            estado_upper = ESTADO_ACTIVO
+        query = query.join(Usuario.estado).where(Estado.nombre == estado_upper)
+    else:
+        # Por defecto no mostramos PENDIENTES
+        estado_pendiente = _estado_por_nombre(ESTADO_PENDIENTE, db)
+        query = query.where(Usuario.id_estado != estado_pendiente.id)
+
+    usuarios = db.scalars(query).unique().all()
+    return [_a_cuota_out(u, db) for u in usuarios]
+
+
+def obtener_estadisticas(db: Session) -> dict:
+    from datetime import datetime, timedelta
+    hace_30_dias = datetime.now() - timedelta(days=30)
+
+    estado_pendiente = _estado_por_nombre(ESTADO_PENDIENTE, db)
+
+    total_usuarios = db.scalar(
+        select(func.count(Usuario.id)).where(Usuario.id_estado != estado_pendiente.id)
+    ) or 0
+
+    nuevos_este_mes = db.scalar(
+        select(func.count(Usuario.id)).where(
+            Usuario.id_estado != estado_pendiente.id,
+            Usuario.fecha_registro >= hace_30_dias,
+        )
+    ) or 0
+
+    solicitudes_pendientes = db.scalar(
+        select(func.count(Usuario.id)).where(Usuario.id_estado == estado_pendiente.id)
+    ) or 0
+
+    total_bytes = db.scalar(
+        select(func.coalesce(func.sum(Archivo.tamano_bytes), 0)).where(
+            Archivo.en_papelera.is_(False)
+        )
+    ) or 0
+
+    almacenamiento_usado_mb = round(total_bytes / BYTES_POR_MB, 2)
+    capacidad_servidor_mb = 100.0 * 1024.0
+
+    return {
+        "total_usuarios": total_usuarios,
+        "nuevos_este_mes": nuevos_este_mes,
+        "solicitudes_pendientes": solicitudes_pendientes,
+        "almacenamiento_usado_mb": almacenamiento_usado_mb,
+        "capacidad_servidor_mb": capacidad_servidor_mb,
+    }
+
+
+def cambiar_estado_usuario(usuario_id: int, nuevo_estado: str, db: Session) -> dict:
+    usuario = db.get(
+        Usuario,
+        usuario_id,
+        options=[joinedload(Usuario.rol), joinedload(Usuario.estado)],
+    )
+    if usuario is None:
+        raise ErrorNoEncontrado("Usuario no encontrado")
+
+    estado_nombre = nuevo_estado.upper()
+    if estado_nombre == "APROBADO":
+        estado_nombre = ESTADO_ACTIVO
+    elif estado_nombre == "SUSPENDIDO":
+        estado_nombre = ESTADO_RECHAZADO
+
+    estado_obj = _estado_por_nombre(estado_nombre, db)
+    usuario.id_estado = estado_obj.id
+    db.commit()
+    db.refresh(usuario)
+    return _a_cuota_out(usuario, db)
 
 
 # ===============================================================
@@ -303,9 +401,16 @@ def actualizar_cuota_usuario(
             )
 
     if max_efectivo > cuota_efectiva:
-        raise ErrorValidacion(
-            "El tamaño máximo por archivo no puede superar la cuota total"
-        )
+        if not cambia_max or max_mb is None:
+            # Si no se envió un max_file específico (o se reseteó a default del rol)
+            # y la cuota total queda por debajo del max_file efectivo, ajustamos el max_file
+            # para no exceder la cuota en lugar de rechazar la operación.
+            usuario.max_file_personalizado_mb = cuota_efectiva
+            cambia_max = False
+        else:
+            raise ErrorValidacion(
+                "El tamaño máximo por archivo no puede superar la cuota total"
+            )
 
     if cambia_cuota:
         usuario.cuota_personalizada_mb = cuota_mb
