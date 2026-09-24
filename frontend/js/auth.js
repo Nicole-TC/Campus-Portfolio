@@ -14,7 +14,7 @@ const Auth = (() => {
 
   // Qué roles pueden hacer cada cosa (lo consultan Drive y Api).
   const CAPACIDADES = {
-    compartir: ['docente', 'admin'],
+    compartir: ['alumno', 'docente', 'admin'],
   };
 
   // Capacidad total del servidor (VPS) que se muestra en el panel de admin.
@@ -157,8 +157,12 @@ const Auth = (() => {
   }
 
   function obtenerUsuario(id) {
-    const u = leerUsuarios().find(x => x.id === id);
-    return u ? publico(u) : null;
+    const ses = obtenerSesion();
+    if (ses && String(ses.id) === String(id)) {
+      return ses;
+    }
+    const u = leerUsuarios().find(x => String(x.id) === String(id));
+    return u ? publico(u) : (ses && String(id) === String(ses.id) ? ses : null);
   }
 
   function usuarioPorEmail(email) {
@@ -456,8 +460,8 @@ const Auth = (() => {
     if (!tokenValido(token)) return { ok: false, motivo: 'expirada' };
     // Con el backend real la sesión ya trae los datos del usuario; el mock local
     // (cuando existe) solo se usa como complemento de datos para admin.html.
-    const enMock = obtenerUsuario(ses.id);
-    const usuario = enMock || ses;
+    const enMock = leerUsuarios().find(x => String(x.id) === String(ses.id));
+    const usuario = enMock ? publico(enMock) : ses;
     if (enMock && enMock.estado !== 'aprobado') return { ok: false, motivo: enMock.estado };
     if (rolRequerido) {
       const permitidos = Array.isArray(rolRequerido) ? rolRequerido : [rolRequerido];
