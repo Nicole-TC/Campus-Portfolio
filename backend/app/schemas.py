@@ -15,6 +15,7 @@ class AlmacenamientoOut(BaseModel):
 class LimitesOut(BaseModel):
     tamano_max_archivo_bytes: int
     extensiones_permitidas: List[str]
+    extensiones_bloqueadas: List[str] = []
 
 
 class PerfilOut(BaseModel):
@@ -28,9 +29,23 @@ class PerfilOut(BaseModel):
     almacenamiento: AlmacenamientoOut
     limites: LimitesOut
 
+
+class CambiarPasswordIn(BaseModel):
+    password_actual: str
+    password_nueva: str
+
+
 class CarpetaCrear(BaseModel):
     nombre: str
     carpeta_padre_id: int | None = None
+
+
+class ElementoRenombrar(BaseModel):
+    nombre: str
+
+
+class ElementoMover(BaseModel):
+    carpeta_destino_id: int | None = None
 
 
 class ArchivoPapeleraOut(BaseModel):
@@ -92,6 +107,7 @@ class RolAdminOut(CatalogoOut):
     """Rol con sus límites base, para que el front muestre las opciones al aprobar."""
     cuota_total_mb: int
     max_file_size_mb: int
+    cantidad_usuarios: Optional[int] = None
 
 
 class UsuarioPendienteOut(BaseModel):
@@ -140,19 +156,35 @@ class CambioRolIn(BaseModel):
     id_rol: int
 
 
+class EstadoUsuarioIn(BaseModel):
+    """Body para suspender o reactivar usuario."""
+    estado: str
+
+
 class UsuarioCuotaOut(BaseModel):
     """Vista de un usuario con sus cuotas efectivas y uso actual."""
     id: int
     nombre: str
     apellido: str
+    dni: Optional[str] = None
     email: str
     rol: str
     estado: str
-    cuota_personalizada_mb: Optional[int]
-    max_file_personalizado_mb: Optional[int]
+    cuota_personalizada_mb: Optional[int] = None
+    max_file_personalizado_mb: Optional[int] = None
     cuota_efectiva_mb: int
     max_file_efectivo_mb: int
     uso_bytes: int
+    fecha_registro: Optional[datetime] = None
+
+
+class EstadisticasAdminOut(BaseModel):
+    """Métricas consolidadas para el panel de administración."""
+    total_usuarios: int
+    nuevos_este_mes: int
+    solicitudes_pendientes: int
+    almacenamiento_usado_mb: float
+    capacidad_servidor_mb: float
 
 
 class ExtensionesProhibidasIn(BaseModel):

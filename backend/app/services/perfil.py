@@ -1,7 +1,7 @@
 """Lógica de negocio del módulo Mi Perfil: límites, cuota y extensiones."""
 from typing import List
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -48,6 +48,27 @@ def extensiones_permitidas(usuario: Usuario, db: Session) -> List[str]:
         select(Extension.nombre)
         .where(Extension.id.not_in(bloqueadas_rol))
         .where(Extension.id.not_in(bloqueadas_usuario))
+        .order_by(Extension.nombre)
+    )
+    return list(db.scalars(consulta))
+ 
+ 
+def extensiones_bloqueadas(usuario: Usuario, db: Session) -> List[str]:
+    """Todas las extensiones bloqueadas para su rol o prohibidas para él."""
+    bloqueadas_rol = select(RolExtensionBloqueada.extension_id).where(
+        RolExtensionBloqueada.rol_id == usuario.id_rol
+    )
+    bloqueadas_usuario = select(UsuarioExtensionProhibida.extension_id).where(
+        UsuarioExtensionProhibida.usuario_id == usuario.id
+    )
+    consulta = (
+        select(Extension.nombre)
+        .where(
+            or_(
+                Extension.id.in_(bloqueadas_rol),
+                Extension.id.in_(bloqueadas_usuario),
+            )
+        )
         .order_by(Extension.nombre)
     )
     return list(db.scalars(consulta))

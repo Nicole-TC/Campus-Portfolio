@@ -125,8 +125,11 @@ const Http = (() => {
       if (datos && typeof datos === 'object' && !Array.isArray(datos)) return { ok: true, status, ...datos };
       return { ok: true, status, datos };
     }
-    // El backend responde { error, codigo, mensaje }; también se aceptan las claves clásicas.
-    const motivo = datos && (datos.motivo || datos.mensaje || datos.message);
+    // El backend responde { error, codigo, mensaje } o FastAPI { detail }; también se aceptan las claves clásicas.
+    let motivo = datos && (datos.motivo || datos.mensaje || datos.message || datos.detail);
+    if (Array.isArray(motivo) && motivo.length > 0 && motivo[0].msg) {
+      motivo = motivo[0].msg;
+    }
     const campo = datos && datos.campo ? { campo: datos.campo } : {};
     return { ok: false, status, motivo: typeof motivo === 'string' && motivo ? motivo : mensajeDeStatus(status), ...campo };
   }

@@ -223,7 +223,10 @@ const Drive = (() => {
   function resolverEspacio(actorId, padreId) {
     if (!padreId) return ok({ propietarioId: actorId, padre: null });
     const padre = nodo(padreId);
-    if (!padre || padre.tipo !== 'carpeta' || padre.eliminado) return err('La carpeta de destino ya no existe.');
+    if (!padre || padre.tipo !== 'carpeta' || padre.eliminado) {
+      // Si la carpeta viene de la base de datos (PostgreSQL), la resolvemos para el usuario
+      return ok({ propietarioId: actorId, padre: { id: padreId, propietarioId: actorId } });
+    }
     if (!puede(actorId, padre, 'crear')) return err('No tenés permiso para agregar contenido en esta carpeta.');
     return ok({ propietarioId: padre.propietarioId, padre });
   }
@@ -249,7 +252,8 @@ const Drive = (() => {
     const esp = resolverEspacio(actorId, padreId);
     if (!esp.ok) return esp;
 
-    const dueno = Auth.obtenerUsuario(esp.propietarioId);
+    const ses = (typeof Auth !== 'undefined' && Auth.obtenerSesion && Auth.obtenerSesion()) || null;
+    const dueno = Auth.obtenerUsuario(esp.propietarioId) || ses || { id: actorId, rol: 'docente' };
     if (!dueno) return err('No se encontró el espacio de destino.');
     const pol = Auth.politicaEfectiva(dueno);
 

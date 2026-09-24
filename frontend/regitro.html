@@ -252,6 +252,7 @@
     // La cuenta queda pendiente hasta que un admin la apruebe desde
     // admin.html, así que no la logueamos: la mandamos a login.html.
     sessionStorage.setItem('campuscloud_registro_ok', '1');
+    sessionStorage.setItem('campuscloud_registro_dni', dni);
     Auth.irA('login.html');
   });
 </script>

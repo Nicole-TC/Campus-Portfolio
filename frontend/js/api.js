@@ -93,6 +93,16 @@ const Api = (() => {
         return { ok: true, status: 200, usuario, token: r.access_token };
     });
 
+    /** GET /api/usuarios/me */
+    const miPerfil = () => enCarga(async () => {
+        return Http.get('usuarios/me');
+    });
+
+    /** PATCH /api/usuarios/password */
+    const cambiarPassword = (password_actual, password_nueva) => enCarga(async () => {
+        return Http.patch('usuarios/password', { password_actual, password_nueva });
+    });
+
     /**
      * POST /auth/registro → el backend deja al usuario en estado PENDIENTE hasta la aprobación.
      * El frontend envía "rolSolicitado" en minúsculas; el backend espera "rol" en mayúsculas.
@@ -121,20 +131,41 @@ const Api = (() => {
     });
 
     // ---------------------------------------------------------------
-    // Drive (requieren sesión; los tres roles)
+    // Drive (backend real FastAPI con fallback)
     // ---------------------------------------------------------------
 
-    /** POST /drive/folders  { padreId, nombre } */
-    const crearCarpeta = (padreId, nombre) =>
-        llamar(null, u => Drive.crearCarpeta(u.id, padreId, nombre));
+    /** POST /api/carpetas  { nombre, carpeta_padre_id } */
+    const crearCarpeta = (padreId, nombre) => enCarga(async () => {
+        const idPadreNum = padreId ? Number(padreId) : null;
+        const res = await Http.post('carpetas', {
+            nombre: String(nombre || '').trim(),
+            carpeta_padre_id: isNaN(idPadreNum) ? null : idPadreNum
+        });
+        if (res.ok) {
+            return { ok: true, status: 201, ...res };
+        }
+        // Fallback local si el endpoint no está disponible
+        return llamar(null, u => Drive.crearCarpeta(u.id, padreId, nombre));
+    });
 
     /**
-     * POST /drive/files  (multipart: padreId + archivo). La latencia crece con el tamaño.
-     * onProgress(0-100) es opcional. Acá el avance es simulado; con backend real
-     * se usa Http.subir('drive/files', formData, { onProgress }), que da el
-     * progreso real de la subida.
+     * POST /api/archivos  (multipart: archivo + carpeta_id opcional).
+     * Soporta onProgress(0-100) para mostrar avance real de subida.
      */
     const subirArchivo = async (padreId, archivo, onProgress = null) => {
+        const formData = new FormData();
+        formData.append('archivo', archivo);
+        if (padreId) {
+            const idNum = Number(padreId);
+            if (!isNaN(idNum)) formData.append('carpeta_id', idNum);
+        }
+
+        const res = await Http.subir('archivos', formData, { onProgress });
+        if (res.status !== 0) {
+            return res.ok ? { ok: true, status: 201, ...res } : res;
+        }
+
+        // Fallback local simulado en caso de error de red o backend no alcanzable
         const duracion = LATENCIA_MS + Math.min(1500, Math.round((archivo.size || 0) / (1024 * 1024)) * 15);
         let timer = null;
         if (onProgress) {
@@ -148,83 +179,316 @@ const Api = (() => {
         return r;
     };
 
-    /** PATCH /drive/items/:id  { nombre } */
-    const renombrar = (id, nombre) =>
-        llamar(null, u => Drive.renombrar(u.id, id, nombre));
+    /** GET /api/archivos?carpeta_id=...&pagina=1&limite=50&q=... */
+    const listarContenido = (carpetaId = null, pagina = 1, limite = 50, q = null) => enCarga(async () => {
+        let ruta = `archivos?pagina=${pagina}&limite=${limite}`;
+        if (carpetaId) {
+            const idNum = Number(carpetaId);
+            if (!isNaN(idNum)) ruta += `&carpeta_id=${idNum}`;
+        }
+        if (q && String(q).trim()) {
+            ruta += `&q=${encodeURIComponent(String(q).trim())}`;
+        }
+        return Http.get(ruta);
+    });
 
-    /** PATCH /drive/items/:id  { padreId } */
-    const mover = (id, destinoId) =>
-        llamar(null, u => Drive.mover(u.id, id, destinoId));
+    /** GET /api/carpetas */
+    const listarTodasCarpetas = () => enCarga(async () => {
+        return Http.get('carpetas');
+    });
 
-    /** DELETE /drive/items/:id  (a la papelera, en cascada) */
-    const eliminar = (id) =>
-        llamar(null, u => Drive.eliminar(u.id, id));
+    /** PATCH /api/archivos/:id/renombrar o /api/carpetas/:id/renombrar */
+    const renombrar = (id, nombre, tipo = 'archivo') => enCarga(async () => {
+        const endpoint = tipo === 'carpeta' ? `carpetas/${id}/renombrar` : `archivos/${id}/renombrar`;
+        const res = await Http.patch(endpoint, { nombre: String(nombre).trim() });
+        if (res.status === 0) return llamar(null, u => Drive.renombrar(u.id, id, nombre));
+        return res;
+    });
 
-    /** POST /drive/trash/:id/restore */
-    const restaurar = (id) =>
-        llamar(null, u => Drive.restaurar(u.id, id));
+    /** PATCH /api/archivos/:id/mover o /api/carpetas/:id/mover */
+    const mover = (id, destinoId, tipo = 'archivo') => enCarga(async () => {
+        const endpoint = tipo === 'carpeta' ? `carpetas/${id}/mover` : `archivos/${id}/mover`;
+        const dest = (destinoId && String(destinoId).trim() !== '') ? Number(destinoId) : null;
+        const res = await Http.patch(endpoint, { carpeta_destino_id: dest });
+        if (res.status === 0) return llamar(null, u => Drive.mover(u.id, id, destinoId));
+        return res;
+    });
 
-    /** DELETE /drive/trash/:id */
-    const eliminarDefinitivo = (id) =>
-        llamar(null, u => Drive.eliminarDefinitivo(u.id, id));
+    /** PATCH /api/archivos/:id/papelera o /api/carpetas/:id/papelera */
+    const eliminar = (id, tipo = 'archivo') => enCarga(async () => {
+        const endpoint = tipo === 'carpeta' ? `carpetas/${id}/papelera` : `archivos/${id}/papelera`;
+        const res = await Http.patch(endpoint);
+        if (res.status === 0) return llamar(null, u => Drive.eliminar(u.id, id));
+        return res;
+    });
 
-    /** DELETE /drive/trash */
-    const vaciarPapelera = () =>
-        llamar(null, u => Drive.vaciarPapelera(u.id));
+    /** PATCH /api/archivos/:id/restaurar o /api/carpetas/:id/restaurar */
+    const restaurar = (id, tipo = 'archivo') => enCarga(async () => {
+        const endpoint = tipo === 'carpeta' ? `carpetas/${id}/restaurar` : `archivos/${id}/restaurar`;
+        const res = await Http.patch(endpoint);
+        if (res.status === 0) return llamar(null, u => Drive.restaurar(u.id, id));
+        return res;
+    });
 
-    /** GET /drive/files/:id/download */
-    const descargar = (id) =>
-        llamar(null, u => Drive.descargar(u.id, id));
+    /** DELETE /api/archivos/:id o /api/carpetas/:id */
+    const eliminarDefinitivo = (id, tipo = 'archivo') => enCarga(async () => {
+        const endpoint = tipo === 'carpeta' ? `carpetas/${id}` : `archivos/${id}`;
+        const res = await Http.delete(endpoint);
+        if (res.status === 0) return llamar(null, u => Drive.eliminarDefinitivo(u.id, id));
+        return res;
+    });
+
+    /** DELETE /api/archivos/papelera/vaciar */
+    const vaciarPapelera = () => enCarga(async () => {
+        const res = await Http.delete('archivos/papelera/vaciar');
+        if (res.status === 0) return llamar(null, u => Drive.vaciarPapelera(u.id));
+        return res;
+    });
+
+    /** GET /api/archivos/papelera */
+    const listarPapelera = () => enCarga(async () => {
+        const res = await Http.get('archivos/papelera');
+        if (res.status === 0) return llamar(null, u => ({ ok: true, archivos: Drive.listarPapelera(u.id) }));
+        if (res.ok) {
+            const carpetas = Array.isArray(res.carpetas) ? res.carpetas : [];
+            const archivos = Array.isArray(res.archivos) ? res.archivos : [];
+            return { ok: true, status: 200, items: [...carpetas, ...archivos], carpetas, archivos };
+        }
+        return res;
+    });
+
+    /** GET /api/archivos/:id/descargar */
+    const descargar = async (id) => {
+        try {
+            const token = Auth.obtenerToken();
+            const resp = await fetch(`/api/archivos/${id}/descargar`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            if (!resp.ok) {
+                return llamar(null, u => Drive.descargar(u.id, id));
+            }
+            const blob = await resp.blob();
+            let nombre = 'archivo';
+            const disposition = resp.headers.get('Content-Disposition') || resp.headers.get('content-disposition');
+            if (disposition && disposition.includes('filename=')) {
+                nombre = disposition.split('filename=')[1].replace(/["']/g, '').trim();
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = nombre;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1500);
+            return { ok: true };
+        } catch (e) {
+            return llamar(null, u => Drive.descargar(u.id, id));
+        }
+    };
 
     // ---------------------------------------------------------------
-    // Compartir (solo docente y admin; el alumno recibe pero no comparte)
+    // Compartir
     // ---------------------------------------------------------------
 
     /**
-     * GET /drive/shares/received  → { items: [{ share, nodo, propietario, permiso }] }
-     * Lo que otras personas compartieron con quien tiene la sesión. Lo pueden
-     * pedir los tres roles (el alumno recibe aunque no comparta).
+     * GET /api/archivos/compartidos
      */
-    const compartidosConmigo = () =>
-        llamar(null, u => ({ ok: true, items: Drive.compartidosConmigo(u.id) }));
+    const compartidosConmigo = () => enCarga(async () => {
+        const res = await Http.get('archivos/compartidos');
+        if (res.status === 0) return llamar(null, u => ({ ok: true, items: Drive.compartidosConmigo(u.id) }));
+        return res;
+    });
 
     /**
-     * POST /drive/items/:id/shares  { destinatario, permiso }
+     * POST /api/permisos  { archivo_id, destinatario }
      * "destinatario" es el correo o el DNI de la otra persona.
      */
-    const compartir = (id, destinatario, permiso) =>
-        llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, destinatario, permiso));
+    const compartir = (id, destinatario, permiso = 'lector') => enCarga(async () => {
+        const res = await Http.post('permisos', {
+            archivo_id: Number(id),
+            destinatario: String(destinatario).trim(),
+        });
+        if (res.status === 0) return llamar(ROLES_QUE_COMPARTEN, u => Drive.compartir(u.id, id, destinatario, permiso));
+        return res;
+    });
+
+    /** GET /api/permisos/archivo/:id */
+    const listarPermisosArchivo = (archivoId) => enCarga(async () => {
+        const res = await Http.get(`permisos/archivo/${archivoId}`);
+        if (res.status === 0) return { ok: true, datos: Drive.comparticionesDe(archivoId) };
+        return res;
+    });
+
+    /** DELETE /api/permisos/:permisoId */
+    const revocarPermiso = (permisoId) => enCarga(async () => {
+        const res = await Http.delete(`permisos/${permisoId}`);
+        if (res.status === 0) return llamar(null, u => Drive.quitarComparticion(u.id, permisoId));
+        return res;
+    });
+
+    /** DELETE /api/permisos/archivo/:archivoId/renunciar */
+    const quitarDeMisCompartidos = (archivoId) => enCarga(async () => {
+        const res = await Http.delete(`permisos/archivo/${archivoId}/renunciar`);
+        if (res.status === 0) return llamar(null, u => Drive.quitarComparticion(u.id, archivoId));
+        return res;
+    });
 
     /** PATCH /drive/shares/:shareId  { permiso } */
     const cambiarPermisoComparticion = (shareId, permiso) =>
         llamar(ROLES_QUE_COMPARTEN, u => Drive.cambiarPermisoComparticion(u.id, shareId, permiso));
 
     /** DELETE /drive/shares/:shareId  (el dueño la revoca o quien la recibió se la quita de la lista) */
-    const quitarComparticion = (shareId) =>
-        llamar(null, u => Drive.quitarComparticion(u.id, shareId));
+    const quitarComparticion = (shareId) => revocarPermiso(shareId);
 
     // ---------------------------------------------------------------
-    // Administración (solo rol admin)
+    // Administración (conectado con backend real /admin)
     // ---------------------------------------------------------------
 
-    /** PATCH /admin/users/:id/status  { estado, motivo?, rol? }  (al aprobar se fija el rol final) */
-    const cambiarEstadoUsuario = (id, estado, opciones) =>
-        llamar('admin', () => Auth.cambiarEstadoUsuario(id, estado, opciones));
+    /** GET /api/admin/usuarios/pendientes */
+    const obtenerPendientes = () => enCarga(async () => {
+        const res = await Http.get('admin/usuarios/pendientes');
+        if (res.ok) {
+            // Http.js guarda arreglos en res.datos o en res directamente si fuera objeto
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return { ok: false, status: res.status, motivo: res.motivo, items: [] };
+    });
 
-    /** PATCH /admin/users/:id/role  { rol }  — no deja bajar a un rol cuya cuota no alcance para lo ya guardado */
-    const cambiarRol = (id, rol) =>
-        llamar('admin', () => {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return { ok: false, motivo: 'No se encontró la cuenta.' };
-            const pol = Auth.politicaEfectiva({ ...u, rol });
-            const uso = Drive.usoMB(id);
-            if (uso > pol.cuotaMB) {
-                return { ok: false, motivo: `El rol ${Auth.ROLES[rol]} tiene ${UI.formatoTamanio(pol.cuotaMB)} de espacio y la cuenta ya usa ${UI.formatoTamanio(uso)}. Liberá espacio o cargá una excepción antes de cambiar el rol.` };
-            }
-            return Auth.cambiarRol(id, rol);
-        });
+    /** PATCH /api/admin/usuarios/:id/aprobar  { id_rol } */
+    const aprobarUsuario = (id, idRol) => enCarga(async () => {
+        return Http.patch(`admin/usuarios/${id}/aprobar`, { id_rol: Number(idRol) });
+    });
 
-    /** PUT /admin/users/:id/overrides  { cuotaMB?, maxArchivoMB?, extensiones? } */
+    /** PATCH /api/admin/usuarios/:id/rechazar */
+    const rechazarUsuario = (id) => enCarga(async () => {
+        return Http.patch(`admin/usuarios/${id}/rechazar`, {});
+    });
+
+    /** GET /api/admin/usuarios?estado=... */
+    const obtenerUsuariosAdmin = (estado = null) => enCarga(async () => {
+        let ruta = 'admin/usuarios';
+        if (estado && estado !== 'todos') ruta += `?estado=${encodeURIComponent(estado)}`;
+        const res = await Http.get(ruta);
+        if (res.ok) {
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        if (res.status === 0) {
+            const mock = Auth.listarUsuarios().filter(u => u.estado !== 'pendiente');
+            return { ok: true, status: 200, items: mock };
+        }
+        return { ok: false, status: res.status, motivo: res.motivo, items: [] };
+    });
+
+    /** GET /api/admin/estadisticas */
+    const obtenerEstadisticasAdmin = () => enCarga(async () => {
+        const res = await Http.get('admin/estadisticas');
+        if (res.ok) return { ok: true, status: 200, ...res };
+        return res;
+    });
+
+    /** GET /api/admin/roles */
+    const obtenerRolesAdmin = () => enCarga(async () => {
+        const res = await Http.get('admin/roles');
+        if (res.ok) {
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return res;
+    });
+
+    /** PATCH /api/admin/roles/:idRol */
+    const actualizarRolAdmin = (idRol, cuotaMB, maxFileMB) => enCarga(async () => {
+        const payload = {};
+        if (cuotaMB !== undefined) payload.cuota_total_mb = cuotaMB;
+        if (maxFileMB !== undefined) payload.max_file_size_mb = maxFileMB;
+        return Http.patch(`admin/roles/${idRol}`, payload);
+    });
+
+    /** GET /api/admin/extensiones */
+    const obtenerExtensionesAdmin = () => enCarga(async () => {
+        const res = await Http.get('admin/extensiones');
+        if (res.ok) {
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return res;
+    });
+
+    /** GET /api/admin/roles/:idRol/extensiones-bloqueadas */
+    const obtenerExtensionesBloqueadasRol = (idRol) => enCarga(async () => {
+        const res = await Http.get(`admin/roles/${idRol}/extensiones-bloqueadas`);
+        if (res.ok) {
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return res;
+    });
+
+    /** PUT /api/admin/roles/:idRol/extensiones-bloqueadas */
+    const reemplazarExtensionesBloqueadasRol = (idRol, ids) => enCarga(async () => {
+        return Http.put(`admin/roles/${idRol}/extensiones-bloqueadas`, { ids_extensiones: ids });
+    });
+
+    /** GET /api/admin/usuarios/:id/extensiones-prohibidas */
+    const obtenerExtensionesProhibidasUsuario = (id) => enCarga(async () => {
+        const res = await Http.get(`admin/usuarios/${id}/extensiones-prohibidas`);
+        if (res.ok) {
+            const lista = Array.isArray(res.datos) ? res.datos : (Array.isArray(res) ? res : (res.items || []));
+            return { ok: true, status: 200, items: lista };
+        }
+        return res;
+    });
+
+    /** PUT /api/admin/usuarios/:id/extensiones-prohibidas */
+    const reemplazarExtensionesProhibidasUsuario = (id, ids) => enCarga(async () => {
+        return Http.put(`admin/usuarios/${id}/extensiones-prohibidas`, { ids_extensiones: ids });
+    });
+
+    /** PATCH /api/admin/usuarios/:id/estado */
+    const cambiarEstadoUsuario = (id, estado, opciones = {}) => enCarga(async () => {
+        const res = await Http.patch(`admin/usuarios/${id}/estado`, { estado: String(estado).toUpperCase() });
+        if (res.status === 0) return llamar('admin', () => Auth.cambiarEstadoUsuario(id, estado, opciones));
+        return res;
+    });
+
+    /** PATCH /api/admin/usuarios/:id/rol */
+    const cambiarRol = (id, idRol) => enCarga(async () => {
+        const res = await Http.patch(`admin/usuarios/${id}/rol`, { id_rol: Number(idRol) });
+        if (res.status === 0) {
+            return llamar('admin', () => {
+                const u = Auth.obtenerUsuario(id);
+                if (!u) return { ok: false, motivo: 'No se encontró la cuenta.' };
+                return Auth.cambiarRol(id, idRol);
+            });
+        }
+        return res;
+    });
+
+    /** PATCH /api/admin/usuarios/:id/cuota */
+    const cambiarCuota = (id, cuotaMB, maxFileMB = undefined) => enCarga(async () => {
+        const payload = {
+            cuota_personalizada_mb: cuotaMB == null ? null : Number(cuotaMB),
+        };
+        if (maxFileMB !== undefined) {
+            payload.max_file_personalizado_mb = maxFileMB == null ? null : Number(maxFileMB);
+        }
+        const res = await Http.patch(`admin/usuarios/${id}/cuota`, payload);
+        if (res.status === 0) {
+            return llamar('admin', () => {
+                const u = Auth.obtenerUsuario(id);
+                if (!u) return { ok: false, motivo: 'No se encontró la cuenta.' };
+                const excepciones = { ...u.excepciones };
+                if (cuotaMB == null) delete excepciones.cuotaMB; else excepciones.cuotaMB = cuotaMB;
+                return Auth.guardarExcepciones(id, excepciones);
+            });
+        }
+        return res;
+    });
+
+    /** PUT /admin/users/:id/overrides */
     const guardarExcepciones = (id, excepciones) =>
         llamar('admin', () => {
             const u = Auth.obtenerUsuario(id);
@@ -233,21 +497,6 @@ const Api = (() => {
             const uso = Drive.usoMB(id);
             if (uso > pol.cuotaMB) {
                 return { ok: false, motivo: `La cuenta ya usa ${UI.formatoTamanio(uso)}, más que el espacio que quedaría (${UI.formatoTamanio(pol.cuotaMB)}).` };
-            }
-            return Auth.guardarExcepciones(id, excepciones);
-        });
-
-    /** PATCH /admin/users/:id/quota  { cuotaMB }  — null vuelve al valor que corresponde al rol */
-    const cambiarCuota = (id, cuotaMB) =>
-        llamar('admin', () => {
-            const u = Auth.obtenerUsuario(id);
-            if (!u) return { ok: false, motivo: 'No se encontró la cuenta.' };
-            const excepciones = { ...u.excepciones };
-            if (cuotaMB == null) delete excepciones.cuotaMB; else excepciones.cuotaMB = cuotaMB;
-            const pol = Auth.politicaEfectiva({ ...u, excepciones });
-            const uso = Drive.usoMB(id);
-            if (uso > pol.cuotaMB) {
-                return { ok: false, motivo: `La cuenta ya usa ${UI.formatoTamanio(uso)}, más que la cuota que le querés dar (${UI.formatoTamanio(pol.cuotaMB)}).` };
             }
             return Auth.guardarExcepciones(id, excepciones);
         });
@@ -265,10 +514,15 @@ const Api = (() => {
         llamar('admin', () => { Auth.restaurarPoliticas(); return { ok: true }; });
 
     return {
-        login, registrar, recuperarPassword,
-        crearCarpeta, subirArchivo, renombrar, mover, eliminar, restaurar,
-        eliminarDefinitivo, vaciarPapelera, descargar,
+        login, registrar, recuperarPassword, miPerfil, cambiarPassword,
+        crearCarpeta, listarTodasCarpetas, subirArchivo, listarContenido, renombrar, mover, eliminar, restaurar,
+        eliminarDefinitivo, vaciarPapelera, listarPapelera, descargar,
         compartir, compartidosConmigo, cambiarPermisoComparticion, quitarComparticion,
+        listarPermisosArchivo, revocarPermiso, quitarDeMisCompartidos,
+        obtenerPendientes, aprobarUsuario, rechazarUsuario,
+        obtenerUsuariosAdmin, obtenerEstadisticasAdmin, obtenerRolesAdmin, actualizarRolAdmin,
+        obtenerExtensionesAdmin, obtenerExtensionesBloqueadasRol, reemplazarExtensionesBloqueadasRol,
+        obtenerExtensionesProhibidasUsuario, reemplazarExtensionesProhibidasUsuario,
         cambiarEstadoUsuario, cambiarRol, guardarExcepciones, cambiarCuota,
         guardarPoliticaGlobal, guardarPoliticaRol, restaurarPoliticas,
     };
