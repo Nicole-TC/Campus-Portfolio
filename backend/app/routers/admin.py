@@ -6,6 +6,8 @@ G-14: gestión de cuotas, cambio de rol y extensiones prohibidas/bloqueadas.
 Todos los endpoints requieren rol ADMIN: la dependencia `require_admin`
 está aplicada a nivel de router para no repetirla en cada función.
 """
+from typing import Optional
+
 from fastapi import APIRouter, Body, Depends
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,8 @@ from app.schemas import (
     CambioRolIn,
     CatalogoOut,
     CuotaUsuarioIn,
+    EstadisticasAdminOut,
+    EstadoUsuarioIn,
     ExtensionItemOut,
     ExtensionesProhibidasIn,
     RolAdminOut,
@@ -104,6 +108,31 @@ def rechazar(
     El motivo es opcional y solo viaja en ese mensaje.
     """
     return admin_service.rechazar_usuario(usuario_id, db, motivo=payload.motivo)
+
+
+@router.get("/usuarios", response_model=list[UsuarioCuotaOut])
+def listar_usuarios(
+    estado: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Lista usuarios registrados (excluye pendientes por defecto)."""
+    return admin_service.listar_usuarios(db, estado=estado)
+
+
+@router.get("/estadisticas", response_model=EstadisticasAdminOut)
+def obtener_estadisticas(db: Session = Depends(get_db)):
+    """Métricas globales consolidadas para el panel de administración."""
+    return admin_service.obtener_estadisticas(db)
+
+
+@router.patch("/usuarios/{usuario_id}/estado", response_model=UsuarioCuotaOut)
+def cambiar_estado(
+    usuario_id: int,
+    payload: EstadoUsuarioIn,
+    db: Session = Depends(get_db),
+):
+    """Permite suspender o reactivar a un usuario (cambia estado a ACTIVO o RECHAZADO)."""
+    return admin_service.cambiar_estado_usuario(usuario_id, payload.estado, db)
 
 
 # ===============================================================
