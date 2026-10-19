@@ -1,0 +1,12 @@
+# Nunca debe entrar a la imagen: contiene credenciales reales
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.pyc
+.venv/
+.git/
+
+# Los archivos de los usuarios viven en el volumen, no en la imagen
+storage/

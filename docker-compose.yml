@@ -1,0 +1,59 @@
+services:
+
+  # ---------------------------------------------------------------
+  # API (FastAPI) - la van a desarrollar acá adentro
+  # ---------------------------------------------------------------
+  backend:
+    build: ./backend
+    container_name: campuscloud_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ./backend/app:/app/app          # así los cambios de código se ven sin rebuildear
+      - storage_data:/storage            # volumen persistente de archivos de usuarios
+    networks:
+      - campuscloud_net
+    expose:
+      - "8000"   # NO se publica al exterior, solo Nginx lo ve
+
+  # ---------------------------------------------------------------
+  # Bot de Telegram (opcional, aislado en su propio contenedor)
+  # ---------------------------------------------------------------
+  bot:
+    build: ./bot
+    container_name: campuscloud_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - BACKEND_URL=${BACKEND_URL}
+    depends_on:
+      - backend
+    networks:
+      - campuscloud_net
+
+  # ---------------------------------------------------------------
+  # Reverse proxy (Nginx) - único punto de entrada público
+  # ---------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: campuscloud_nginx
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "${PUBLIC_PORT}:80"
+    depends_on:
+      - backend
+    networks:
+      - campuscloud_net
+
+networks:
+  campuscloud_net:
+    external: true
+
+volumes:
+  storage_data:
